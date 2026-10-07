@@ -4,7 +4,9 @@
 
 包标识符：`com.moxuan1121.clipboard`。保存文字和图片，最多 500 条，无收藏功能。
 通过 `prefs://root=clipboard_history` 或 Darwin 通知 `com.moxuan1121.clipboard.show` 呼出；设置页也可打开。已删除侧边按钮，点面板外侧收起。
-面板底部上滑弹出，顶部仅显示「剪切板」。历史以双列圆角卡片显示：文字仅显示内容，图片仅显示缩略图。
+面板底部上滑弹出，顶部仅显示「剪切板」。历史以双列圆角卡片显示，每块高 56pt（原 112pt 的一半）：文字仅显示内容，图片仅显示缩略图。
+背景沿用 Kayoko 的系统薄磨砂材质，随深浅模式切换，并叠加白色（浅色 alpha 0.34、深色 alpha 0.06）。
+URL 呼出覆盖 SpringBoard 的 `_openURLCore:display:animating:activationSettings:origin:withResult:` 路径，按运行时方法签名安装 Hook；私有完成回调按真实 Block 签名调用，避免猜测参数造成崩溃。
 点击条目写入系统剪贴板，收起面板后通过系统 Cmd+V 向当前输入框粘贴。没有输入框时保留在剪贴板；锁屏、关闭插件、重新打开面板、切换前台应用或剪贴板再次变化时取消延迟粘贴。
 长按文字通过 `RSKAOpenTokens` 打开 RegionShot 分词；长按图片通过 `RSShowFloatingImage` 打开 RegionShot 图片浮窗。仅解析已加载的可选接口，不强制加载或注入 RegionShot；未安装或版本不支持时显示提示。
 

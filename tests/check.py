@@ -32,4 +32,7 @@ assert '点击复制或粘贴' not in ui and 'title.text = @"剪切板"' in ui
 assert 'RSKAOpenTokens' in ui and 'RSShowFloatingImage' in ui
 assert 'IOHIDEventSystemClientDispatchEvent' in ui and 'sendAction:' not in ui
 assert 'self.presentation != token' in ui and 'self.presentation != hiddenToken' in ui
+assert 'size.width-34)/2), 56)' in ui
+assert 'UIBlurEffectStyleSystemThinMaterialDark' in ui and '0.06 : 0.34' in ui
+assert '%init(URLCore)' in ui and '_openURLCore:display:animating:activationSettings:origin:withResult:' in ui
 print('Plists, 500-item storage, SQLite backup, UI guards, RegionShot APIs and process filters checked.')

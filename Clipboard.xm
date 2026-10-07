@@ -89,6 +89,8 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @interface CBController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) CBWindow *overlay;
 @property(nonatomic,strong) UIView *panel;
+@property(nonatomic,strong) UIVisualEffectView *material;
+@property(nonatomic,strong) UIView *materialTint;
 @property(nonatomic,strong) UICollectionView *grid;
 @property(nonatomic,strong) CBStore *store;
 @property(nonatomic,strong) NSArray *items;
@@ -122,11 +124,19 @@ static CBController *controller;
     [root addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     self.view = root;
     self.panel = [UIView new];
-    self.panel.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.panel.backgroundColor = UIColor.clearColor;
     self.panel.layer.cornerRadius = 28;
     self.panel.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
     self.panel.clipsToBounds = YES;
     [root addSubview:self.panel];
+    self.material = [[UIVisualEffectView alloc] initWithEffect:nil];
+    self.material.userInteractionEnabled = NO;
+    self.material.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.panel addSubview:self.material];
+    self.materialTint = [UIView new];
+    self.materialTint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.material.contentView addSubview:self.materialTint];
+    [self applyMaterial];
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 8, 220, 42)];
     title.text = @"剪切板";
     title.font = [UIFont boldSystemFontOfSize:18];
@@ -152,12 +162,23 @@ static CBController *controller;
     CGFloat width = b.size.width > b.size.height ? MIN(520, b.size.width) : b.size.width;
     self.panel.bounds = CGRectMake(0, 0, width, height);
     self.panel.center = CGPointMake(CGRectGetMidX(b), b.size.height-height/2);
+    self.material.frame = self.panel.bounds;
+    self.materialTint.frame = self.material.bounds;
     self.grid.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
     self.grid.contentInset = UIEdgeInsetsMake(0, 0, self.view.safeAreaInsets.bottom, 0);
     [self.grid.collectionViewLayout invalidateLayout];
 }
 - (CGSize)collectionView:(UICollectionView *)grid layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)path {
-    return CGSizeMake(floor((grid.bounds.size.width-34)/2), 112);
+    return CGSizeMake(floor((grid.bounds.size.width-34)/2), 56);
+}
+- (void)applyMaterial {
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    self.material.effect = [UIBlurEffect effectWithStyle:dark ? UIBlurEffectStyleSystemThinMaterialDark : UIBlurEffectStyleSystemThinMaterialLight];
+    self.materialTint.backgroundColor = [UIColor colorWithWhite:1 alpha:dark ? 0.06 : 0.34];
+}
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    if (!previous || [self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) [self applyMaterial];
 }
 - (void)reloadPreferences {
     NSUserDefaults *d = CBDefaults();
@@ -333,6 +354,28 @@ static BOOL CBHandleURL(id url) {
     return YES;
 }
 // Same system URL entry points used by RegionShot; no UIApplication/app injection.
+%group URLCore
+%hook SpringBoard
+- (void)_openURLCore:(id)url display:(id)display animating:(BOOL)animating activationSettings:(id)settings origin:(id)origin withResult:(id)result {
+    if (!CBHandleURL(url)) {
+        %orig;
+        return;
+    }
+    CBCompleteURL(result);
+}
+%end
+%end
+%group URLRequest
+%hook SpringBoard
+- (void)applicationOpenURL:(id)url withApplication:(id)application animating:(BOOL)animating activationSettings:(id)settings origin:(id)origin notifyLSOnFailure:(BOOL)notifyFailure withResult:(id)result {
+    if (!CBHandleURL(url)) {
+        %orig;
+        return;
+    }
+    CBCompleteURL(result);
+}
+%end
+%end
 %group URLShort
 %hook SpringBoard
 - (void)applicationOpenURL:(id)url {
@@ -410,6 +453,12 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
         if ([process isEqualToString:@"druid"]) return;
         if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
             Class springBoard = NSClassFromString(@"SpringBoard"), service = NSClassFromString(@"FBSSystemService");
+            if (CBURLMethod(springBoard, @"_openURLCore:display:animating:activationSettings:origin:withResult:", @[@"@", @"@", @"Bc", @"@", @"@", @"@"])) {
+                %init(URLCore);
+            }
+            if (CBURLMethod(springBoard, @"applicationOpenURL:withApplication:animating:activationSettings:origin:notifyLSOnFailure:withResult:", @[@"@", @"@", @"Bc", @"@", @"@", @"Bc", @"@"])) {
+                %init(URLRequest);
+            }
             if (CBURLMethod(springBoard, @"applicationOpenURL:", @[@"@"])) {
                 %init(URLShort);
             }
