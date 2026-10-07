@@ -27,7 +27,10 @@ static id CBFrontApplication(void) {
 }
 // The OS routes Cmd+V to the focused app, as in Kayoko's simulated paste.
 // Build all four events before pressing a key so allocation failure cannot leave it held.
-static void CBPaste(dispatch_queue_t queue) {
+static void CBPaste(BOOL (^allowed)(void)) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("com.moxuan1121.clipboard.paste", DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL); });
     dispatch_async(queue, ^{
         IOHIDEventSystemClientRef client = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
         if (!client) return;
@@ -38,7 +41,9 @@ static void CBPaste(dispatch_queue_t queue) {
             events[i] = IOHIDEventCreateKeyboardEvent(kCFAllocatorDefault, mach_absolute_time(), 7, usages[i], i < 2, 0);
             if (!events[i]) complete = NO;
         }
-        if (complete) for (int i = 0; i < 4; i++) {
+        __block BOOL permitted = NO;
+        if (complete) dispatch_sync(dispatch_get_main_queue(), ^{ permitted = allowed(); });
+        if (permitted) for (int i = 0; i < 4; i++) {
             if (i == 2) usleep(50000);
             IOHIDEventSetSenderID(events[i], 0x8000000817319371ULL);
             IOHIDEventSystemClientDispatchEvent(client, events[i]);
@@ -134,6 +139,7 @@ static CBController *controller;
     self.grid.dataSource = self;
     self.grid.delegate = self;
     self.grid.backgroundColor = UIColor.clearColor;
+    self.grid.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     [self.grid registerClass:CBCell.class forCellWithReuseIdentifier:@"history"];
     [self.grid addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)]];
     [self.panel addSubview:self.grid];
@@ -271,10 +277,11 @@ static CBController *controller;
             NSUInteger hiddenToken = self.presentation;
             AudioServicesPlaySystemSound(1519);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC/5), dispatch_get_main_queue(), ^{
-                if (self.locked || self.visible || self.presentation != hiddenToken ||
-                    ![CBDefaults() boolForKey:@"enabled"] || UIPasteboard.generalPasteboard.changeCount != change) return;
-                if (application && ![application isEqual:CBFrontApplication()]) return;
-                CBPaste(self.queue);
+                CBPaste(^BOOL {
+                    if (self.locked || self.visible || self.presentation != hiddenToken ||
+                        ![CBDefaults() boolForKey:@"enabled"] || UIPasteboard.generalPasteboard.changeCount != change) return NO;
+                    return !application || [application isEqual:CBFrontApplication()];
+                });
             });
         });
     });
@@ -296,7 +303,8 @@ static CBController *controller;
     self.selecting = YES;
     NSUInteger token = self.presentation;
     dispatch_async(self.queue, ^{
-        UIImage *image = imageItem ? [UIImage imageWithData:[self.store imageForID:item[@"id"]]] : nil;
+        NSData *data = imageItem ? [self.store imageForID:item[@"id"]] : nil;
+        UIImage *image = data.length ? [UIImage imageWithData:data] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!self.visible || self.locked || self.presentation != token) return;
             self.selecting = NO;
