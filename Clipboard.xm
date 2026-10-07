@@ -193,8 +193,16 @@ static CBController *controller;
 
 %group PasteTips
 %hook DRPasteAnnouncer
-- (void)announcePaste:(id)paste { if (![CBDefaults() boolForKey:@"enabled"] || ![CBDefaults() boolForKey:@"suppressTips"]) %orig; }
-- (void)announceDeniedPaste { if (![CBDefaults() boolForKey:@"enabled"] || ![CBDefaults() boolForKey:@"suppressTips"]) %orig; }
+- (void)announcePaste:(id)paste {
+    if (![CBDefaults() boolForKey:@"enabled"] || ![CBDefaults() boolForKey:@"suppressTips"]) {
+        %orig;
+    }
+}
+- (void)announceDeniedPaste {
+    if (![CBDefaults() boolForKey:@"enabled"] || ![CBDefaults() boolForKey:@"suppressTips"]) {
+        %orig;
+    }
+}
 %end
 %end
 
