@@ -8,14 +8,20 @@ source = (root / 'Store.m').read_text(encoding='utf-8')
 sql = re.findall(r'"((?:CREATE TABLE|DELETE FROM|INSERT INTO|SELECT id,text)[^"]+)"', source)
 db = sqlite3.connect(':memory:')
 db.execute(next(s for s in sql if s.startswith('CREATE')))
+db.execute("INSERT INTO history(text,image) VALUES('old entry',X'0102')")
+old = db.execute('SELECT id,text,image FROM history').fetchall()
+alter = re.search(r'"(ALTER TABLE history ADD COLUMN source TEXT)"', source).group(1)
+db.execute(alter)
+assert db.execute('SELECT id,text,image FROM history').fetchall() == old
+assert db.execute('SELECT source FROM history').fetchone() == (None,)
 insert = next(s for s in sql if s.startswith('INSERT'))
 trim = next(s for s in sql if s.startswith('DELETE'))
 for i in range(501):
-    db.execute(insert, (f'text {i}', b'image' if i % 2 else None))
+    db.execute(insert, (f'text {i}', b'image' if i % 2 else None, 'com.apple.Preferences'))
 db.execute(trim)
 items = list(db.execute(next(s for s in sql if s.startswith('SELECT'))))
 assert len(items) == 500 and items[0][1] == 'text 500' and items[-1][1] == 'text 1'
-assert db.execute('SELECT image FROM history WHERE id=500').fetchone()[0] == b'image'
+assert db.execute('SELECT image,source FROM history WHERE id=501').fetchone() == (b'image', 'com.apple.Preferences')
 filter_text = (root / 'Clipboard.plist').read_text()
 assert 'com.apple.UIKit' not in filter_text and 'com.apple.springboard' in filter_text
 assert '/var/jb' not in (root / 'Makefile').read_text()
@@ -44,6 +50,9 @@ assert 'updateStatusBar:NO duration:0 force:YES' in ui
 assert 'colorWithWhite:0.24 alpha:1' in ui and 'borderWidth = 0.5' in ui
 assert 'colorWithRed:0.985 green:0.99 blue:1 alpha:1' in ui and 'shadowOpacity = dark ? 0 : 0.045' in ui
 assert 'self.layer.shadowPath =' in ui
+assert 'self.grid.alwaysBounceVertical = YES' in ui and 'CBFilterHistory(self.allItems, self.searchBar.text)' in ui
+assert 'self.sourceIcon.frame = CGRectMake(3, 3, side, side)' in ui and 'body.size.height-6' in ui
+assert 'saveText:text image:image source:source' in ui and '_iconCache.countLimit = 32' in ui
 settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8')
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings
 assert '_text.textColor = UIColor.labelColor;' in ui

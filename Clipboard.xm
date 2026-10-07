@@ -10,6 +10,14 @@
 #include <string.h>
 #import "URLRoute.h"
 #import "ScreenOrientation.h"
+#import "HistorySearch.h"
+
+@interface NSObject (ClipboardSource)
+- (NSString *)bundleIdentifier;
+@end
+@interface UIImage (ClipboardAppIcon)
++ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)identifier format:(int)format scale:(CGFloat)scale;
+@end
 
 typedef struct __IOHIDEvent *IOHIDEventRef;
 typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
@@ -75,6 +83,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @interface CBCell : UICollectionViewCell
 @property(nonatomic,strong) UILabel *text;
 @property(nonatomic,strong) UIImageView *picture;
+@property(nonatomic,strong) UIImageView *sourceIcon;
 @property(nonatomic,strong) UIButton *deleteButton;
 @property(nonatomic,copy) void (^deleteAction)(NSNumber *);
 @property(nonatomic,copy) void (^revealAction)(CBCell *, BOOL);
@@ -93,6 +102,11 @@ static void CBPaste(BOOL (^allowed)(void)) {
         _picture = [UIImageView new];
         _picture.contentMode = UIViewContentModeScaleAspectFit;
         [self.contentView addSubview:_picture];
+        _sourceIcon = [UIImageView new];
+        _sourceIcon.contentMode = UIViewContentModeScaleAspectFit;
+        _sourceIcon.layer.cornerRadius = 11;
+        _sourceIcon.clipsToBounds = YES;
+        [self.contentView addSubview:_sourceIcon];
         _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
         _deleteButton.backgroundColor = UIColor.systemRedColor;
         _deleteButton.tintColor = UIColor.whiteColor;
@@ -130,6 +144,9 @@ static void CBPaste(BOOL (^allowed)(void)) {
     [super layoutSubviews];
     CGRect body = self.contentView.bounds;
     if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-48);
+    CGFloat side = MIN(MAX(0, body.size.height-6), body.size.width);
+    self.sourceIcon.frame = CGRectMake(3, 3, side, side);
+    if (self.sourceIcon.image) { body.origin.x += side+6; body.size.width = MAX(0, body.size.width-side-6); }
     self.text.frame = CGRectInset(body, 12, 10);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
@@ -151,6 +168,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
     self.deleteAction = nil;
     self.revealAction = nil;
     self.picture.image = nil;
+    self.sourceIcon.image = nil;
     [self updateAppearance];
 }
 - (void)setHighlighted:(BOOL)highlighted {
@@ -159,7 +177,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 }
 @end
 
-@interface CBController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
+@interface CBController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UISearchBarDelegate>
 @property(nonatomic,strong) CBWindow *overlay;
 @property(nonatomic,strong) UIView *panel;
 @property(nonatomic,strong) UIVisualEffectView *material;
@@ -168,6 +186,13 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @property(nonatomic,weak) CBCell *revealedCell;
 @property(nonatomic,strong) CBStore *store;
 @property(nonatomic,strong) NSArray *items;
+@property(nonatomic,strong) NSArray *allItems;
+@property(nonatomic,strong) UISearchBar *searchBar;
+@property(nonatomic,strong) NSCache *iconCache;
+@property(nonatomic,weak) UIWindow *previousKeyWindow;
+@property(nonatomic) BOOL searching;
+@property(nonatomic) BOOL resetSearchOffset;
+@property(nonatomic) CGRect keyboardFrame;
 @property(nonatomic,strong) dispatch_queue_t queue;
 @property(nonatomic) NSInteger lastChange;
 @property(nonatomic) BOOL visible;
@@ -203,6 +228,9 @@ static CBController *controller;
         dispatch_async(_queue, ^{ self.store = [CBStore new]; });
         _lastChange = [UIPasteboard generalPasteboard].changeCount;
         _items = @[];
+        _allItems = @[];
+        _iconCache = [NSCache new];
+        _iconCache.countLimit = 32;
     }
     return self;
 }
@@ -232,12 +260,21 @@ static CBController *controller;
     layout.sectionInset = UIEdgeInsetsMake(0, 12, 12, 12);
     layout.minimumInteritemSpacing = 10;
     layout.minimumLineSpacing = 10;
+    layout.headerReferenceSize = CGSizeMake(1, 56);
     self.grid = [[UICollectionView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
     self.grid.dataSource = self;
     self.grid.delegate = self;
     self.grid.backgroundColor = UIColor.clearColor;
     self.grid.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     [self.grid registerClass:CBCell.class forCellWithReuseIdentifier:@"history"];
+    [self.grid registerClass:UICollectionReusableView.class forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"search"];
+    self.grid.alwaysBounceVertical = YES;
+    self.searchBar = [UISearchBar new];
+    self.searchBar.delegate = self;
+    self.searchBar.placeholder = @"搜索剪切板";
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    [self.grid addSubview:self.searchBar];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [self.grid addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)]];
     [self.panel addSubview:self.grid];
 }
@@ -245,15 +282,63 @@ static CBController *controller;
     [super viewDidLayoutSubviews];
     CGRect b = self.view.bounds;
     CGFloat value = [CBDefaults() doubleForKey:@"height"];
-    CGFloat height = MIN(MAX(isfinite(value) ? value : 420, 180), b.size.height);
+    CGRect keyboard = [self.overlay convertRect:self.keyboardFrame fromCoordinateSpace:UIScreen.mainScreen.coordinateSpace];
+    CGFloat bottom = self.searching && CGRectIntersectsRect(b, keyboard) ? MAX(0, CGRectGetMinY(keyboard)) : b.size.height;
+    CGFloat height = MIN(MAX(isfinite(value) ? value : 420, 180), bottom);
     CGFloat width = b.size.width > b.size.height ? MIN(520, b.size.width) : b.size.width;
     self.panel.bounds = CGRectMake(0, 0, width, height);
-    self.panel.center = CGPointMake(CGRectGetMidX(b), b.size.height-height/2);
+    self.panel.center = CGPointMake(CGRectGetMidX(b), bottom-height/2);
     self.material.frame = self.panel.bounds;
     self.materialTint.frame = self.material.bounds;
     self.grid.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
-    self.grid.contentInset = UIEdgeInsetsMake(0, 0, self.view.safeAreaInsets.bottom, 0);
+    self.searchBar.frame = CGRectMake(8, 4, MAX(0, width-16), 48);
+    self.grid.contentInset = UIEdgeInsetsMake(0, 0, self.searching ? 0 : self.view.safeAreaInsets.bottom, 0);
     [self.grid.collectionViewLayout invalidateLayout];
+}
+- (UICollectionReusableView *)collectionView:(UICollectionView *)grid viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)path {
+    UICollectionReusableView *header = [grid dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"search" forIndexPath:path];
+    return header;
+}
+- (void)applySearch {
+    [self revealDeleteForCell:nil visible:NO];
+    self.items = CBFilterHistory(self.allItems, self.searchBar.text);
+    [self.grid reloadData];
+    if (self.resetSearchOffset) {
+        self.resetSearchOffset = NO;
+        [self.grid layoutIfNeeded];
+        [self.grid setContentOffset:CGPointMake(0, 56) animated:NO];
+    }
+}
+- (void)searchBar:(UISearchBar *)bar textDidChange:(NSString *)text { [self applySearch]; }
+- (BOOL)searchBarShouldBeginEditing:(UISearchBar *)bar {
+    if (!self.visible || self.locked) return NO;
+    if (self.searching) return YES;
+    self.searching = YES;
+    for (UIWindow *window in self.overlay.windowScene.windows) if (window.isKeyWindow && window != self.overlay) { self.previousKeyWindow = window; break; }
+    [self.overlay makeKeyWindow];
+    [bar setShowsCancelButton:YES animated:YES];
+    return YES;
+}
+- (void)endSearchEditing {
+    [self.searchBar resignFirstResponder];
+    self.searching = NO;
+    self.keyboardFrame = CGRectZero;
+    [self.searchBar setShowsCancelButton:NO animated:YES];
+    [self.previousKeyWindow makeKeyWindow];
+    self.previousKeyWindow = nil;
+    [self.view setNeedsLayout];
+}
+- (void)searchBarCancelButtonClicked:(UISearchBar *)bar {
+    bar.text = @"";
+    [self endSearchEditing];
+    [self applySearch];
+}
+- (void)searchBarSearchButtonClicked:(UISearchBar *)bar { [self endSearchEditing]; }
+- (void)keyboardChanged:(NSNotification *)notification {
+    if (!self.visible || !self.searching) return;
+    self.keyboardFrame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    NSTimeInterval duration = [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    [UIView animateWithDuration:duration animations:^{ [self.view setNeedsLayout]; [self.view layoutIfNeeded]; }];
 }
 - (CGSize)collectionView:(UICollectionView *)grid layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)path {
     return CGSizeMake(floor((grid.bounds.size.width-34)/2), 56);
@@ -276,6 +361,7 @@ static CBController *controller;
     [self hideWithCompletion:nil];
 }
 - (void)hideWithCompletion:(dispatch_block_t)completion {
+    [self endSearchEditing];
     [self revealDeleteForCell:nil visible:NO];
     self.visible = NO;
     self.selecting = NO;
@@ -285,6 +371,7 @@ static CBController *controller;
         if (self.presentation != token) return;
         self.overlay.hidden = YES;
         self.items = @[];
+        self.allItems = @[];
         [self.grid reloadData];
         if (completion && !self.locked && [CBDefaults() boolForKey:@"enabled"]) completion();
     };
@@ -298,11 +385,14 @@ static CBController *controller;
     if (self.visible || self.locked || ![CBDefaults() boolForKey:@"enabled"]) return;
     ++self.presentation;
     self.visible = YES;
+    self.searchBar.text = @"";
+    self.resetSearchOffset = YES;
     self.pasteApplication = CBFrontApplication();
     [self.overlay updateOrientation:CBActiveOrientation(self.overlay.windowScene)];
     self.overlay.hidden = NO;
     [self.view setNeedsLayout];
     [self.view layoutIfNeeded];
+    [self.grid setContentOffset:CGPointMake(0, 56) animated:NO];
     self.panel.transform = CGAffineTransformMakeTranslation(0, self.panel.bounds.size.height);
     self.view.backgroundColor = UIColor.clearColor;
     [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut animations:^{
@@ -316,7 +406,7 @@ static CBController *controller;
     dispatch_async(self.queue, ^{
         if (!self.store) self.store = [CBStore new];
         NSArray *items = [self.store history];
-        dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible && self.presentation == token) { self.items = items ?: @[]; [self.grid reloadData]; } });
+        dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible && self.presentation == token) { self.allItems = items ?: @[]; [self applySearch]; } });
     });
 }
 - (void)capture {
@@ -324,6 +414,9 @@ static CBController *controller;
     UIPasteboard *pb = UIPasteboard.generalPasteboard;
     if (pb.changeCount == self.lastChange) return;
     self.lastChange = pb.changeCount;
+    id application = CBFrontApplication();
+    NSString *source = [application respondsToSelector:@selector(bundleIdentifier)] ? [[application bundleIdentifier] copy] : nil;
+    if (![source isKindOfClass:NSString.class]) source = nil;
     NSString *text = pb.string;
     NSData *image = [pb dataForPasteboardType:@"public.png"] ?: [pb dataForPasteboardType:@"public.jpeg"];
     if (!image && pb.hasImages) image = UIImagePNGRepresentation(pb.image);
@@ -331,7 +424,7 @@ static CBController *controller;
     NSInteger change = pb.changeCount;
     dispatch_async(self.queue, ^{
         if (!self.store) self.store = [CBStore new];
-        if ([self.store saveText:text image:image]) dispatch_async(dispatch_get_main_queue(), ^{
+        if ([self.store saveText:text image:image source:source]) dispatch_async(dispatch_get_main_queue(), ^{
             if (!self.locked && [CBDefaults() boolForKey:@"enabled"] && UIPasteboard.generalPasteboard.changeCount == change)
                 AudioServicesPlaySystemSound(1519);
             if (self.visible) [self refresh];
@@ -353,6 +446,14 @@ static CBController *controller;
     cell.text.hidden = hasImage;
     cell.picture.hidden = !hasImage;
     cell.picture.image = nil;
+    NSString *source = item[@"source"];
+    UIImage *icon = source.length ? [self.iconCache objectForKey:source] : nil;
+    if (!icon && source.length && [UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:format:scale:)]) {
+        icon = [UIImage _applicationIconImageForBundleIdentifier:source format:1 scale:UIScreen.mainScreen.scale];
+        if (icon) [self.iconCache setObject:icon forKey:source];
+    }
+    cell.sourceIcon.image = icon;
+    [cell setNeedsLayout];
     cell.accessibilityLabel = hasImage ? @"图片" : item[@"text"];
     cell.isAccessibilityElement = YES;
     cell.accessibilityTraits = UIAccessibilityTraitButton;
@@ -472,8 +573,10 @@ static CBController *controller;
     [self.rootViewController.view setNeedsLayout];
     [self.rootViewController.view layoutIfNeeded];
 }
-- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeKeyWindow { return controller.searching; }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    CGRect keyboard = [self convertRect:controller.keyboardFrame fromCoordinateSpace:UIScreen.mainScreen.coordinateSpace];
+    if (controller.searching && CGRectContainsPoint(keyboard, point)) return nil;
     return controller.visible ? [super hitTest:point withEvent:event] : nil;
 }
 @end

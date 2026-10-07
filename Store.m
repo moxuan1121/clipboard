@@ -1,6 +1,7 @@
 #import "Store.h"
 #import <sqlite3.h>
 #import <roothide.h>
+#include <string.h>
 @implementation CBStore {
     sqlite3 *_db;
 }
@@ -32,18 +33,28 @@
             if (result != SQLITE_DONE || finished != SQLITE_OK) return nil;
         }
         if (sqlite3_exec(_db, "CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY, text TEXT, image BLOB);", NULL, NULL, NULL) != SQLITE_OK) return nil;
+        // Add metadata in place; preserve all existing text, images and record IDs.
+        BOOL hasSource = NO;
+        if (sqlite3_prepare_v2(_db, "PRAGMA table_info(history)", -1, &schema, NULL) != SQLITE_OK) return nil;
+        while (sqlite3_step(schema) == SQLITE_ROW) {
+            const char *name = (const char *)sqlite3_column_text(schema, 1);
+            if (name && strcmp(name, "source") == 0) hasSource = YES;
+        }
+        sqlite3_finalize(schema);
+        if (!hasSource && sqlite3_exec(_db, "ALTER TABLE history ADD COLUMN source TEXT", NULL, NULL, NULL) != SQLITE_OK) return nil;
     }
     return self;
 }
 - (void)dealloc { if (_db) sqlite3_close(_db); }
-- (BOOL)saveText:(NSString *)text image:(NSData *)image {
+- (BOOL)saveText:(NSString *)text image:(NSData *)image source:(NSString *)source {
     if (!_db || (!text.length && !image.length)) return NO;
     if (sqlite3_exec(_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return NO;
     sqlite3_stmt *statement = NULL;
-    BOOL ok = sqlite3_prepare_v2(_db, "INSERT INTO history(text,image) VALUES(?,?)", -1, &statement, NULL) == SQLITE_OK;
+    BOOL ok = sqlite3_prepare_v2(_db, "INSERT INTO history(text,image,source) VALUES(?,?,?)", -1, &statement, NULL) == SQLITE_OK;
     if (ok) {
         if (text.length) sqlite3_bind_text(statement, 1, text.UTF8String, -1, SQLITE_TRANSIENT);
         if (image.length) sqlite3_bind_blob64(statement, 2, image.bytes, image.length, SQLITE_TRANSIENT);
+        if (source.length) sqlite3_bind_text(statement, 3, source.UTF8String, -1, SQLITE_TRANSIENT);
         ok = sqlite3_step(statement) == SQLITE_DONE;
     }
     sqlite3_finalize(statement);
@@ -66,10 +77,11 @@
 - (NSArray *)history {
     NSMutableArray *items = [NSMutableArray array];
     sqlite3_stmt *s = NULL;
-    if (_db && sqlite3_prepare_v2(_db, "SELECT id,text,image IS NOT NULL FROM history ORDER BY id DESC LIMIT 500", -1, &s, NULL) == SQLITE_OK) {
+    if (_db && sqlite3_prepare_v2(_db, "SELECT id,text,image IS NOT NULL,source FROM history ORDER BY id DESC LIMIT 500", -1, &s, NULL) == SQLITE_OK) {
         while (sqlite3_step(s) == SQLITE_ROW) {
             const char *text = (const char *)sqlite3_column_text(s, 1);
-            [items addObject:@{@"id":@(sqlite3_column_int64(s, 0)), @"text":text ? [NSString stringWithUTF8String:text] : @"", @"image":@(sqlite3_column_int(s, 2))}];
+            const char *source = (const char *)sqlite3_column_text(s, 3);
+            [items addObject:@{@"id":@(sqlite3_column_int64(s, 0)), @"text":text ? [NSString stringWithUTF8String:text] : @"", @"image":@(sqlite3_column_int(s, 2)), @"source":source ? [NSString stringWithUTF8String:source] : @""}];
         }
     }
     sqlite3_finalize(s);
