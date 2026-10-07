@@ -113,9 +113,14 @@ static void CBPaste(BOOL (^allowed)(void)) {
 }
 - (void)updateAppearance {
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : UIColor.tertiarySystemBackgroundColor;
-    self.contentView.layer.borderWidth = dark ? 0.5 : 0;
-    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : UIColor.clearColor).CGColor;
+    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : [UIColor colorWithRed:0.985 green:0.99 blue:1 alpha:1];
+    self.contentView.layer.borderWidth = 0.5;
+    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : [UIColor colorWithWhite:0 alpha:0.07]).CGColor;
+    self.clipsToBounds = NO;
+    self.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.layer.shadowOpacity = dark ? 0 : 0.045;
+    self.layer.shadowRadius = 3;
+    self.layer.shadowOffset = CGSizeMake(0, 2);
 }
 - (void)traitCollectionDidChange:(UITraitCollection *)previous {
     [super traitCollectionDidChange:previous];
@@ -128,6 +133,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
     self.text.frame = CGRectInset(body, 12, 10);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
+    self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:16].CGPath;
 }
 - (void)setDeleteRevealed:(BOOL)revealed {
     _deleteRevealed = revealed;

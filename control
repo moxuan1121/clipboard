@@ -1,6 +1,6 @@
 Package: com.moxuan1121.clipboard
 Name: clipboard
-Version: 0.1.4
+Version: 0.1.5
 Architecture: iphoneos-arm64e
 Description: iOS 15 剪贴板历史，保存文字和图片，支持自动粘贴。
 Maintainer: moxuan1121
