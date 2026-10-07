@@ -209,7 +209,9 @@ static CBController *controller;
 %ctor {
     @autoreleasepool {
         NSString *process = NSProcessInfo.processInfo.processName;
-        if (NSClassFromString(@"DRPasteAnnouncer")) { %init(PasteTips); }
+        if (NSClassFromString(@"DRPasteAnnouncer")) {
+            %init(PasteTips);
+        }
         if ([process isEqualToString:@"druid"]) return;
         if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
             [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
