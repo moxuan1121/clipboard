@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>items</key><array>
+<dict><key>cell</key><string>PSGroupCell</string><key>footerText</key><string>仅支持 iOS 15 / Dopamine RootHide。文字与图片最多保存 500 条。点击历史条目后复制，当前输入目标支持粘贴时自动粘贴。历史仅保存在本机。</string></dict>
+<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>启用剪贴板</string><key>key</key><string>enabled</string><key>default</key><true/></dict>
+<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>显示侧边按钮</string><key>key</key><string>trigger</string><key>default</key><true/></dict>
+<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>面板高度</string><key>footerText</key><string>180–900 pt，超过屏幕高度时自动适配。</string></dict>
+<dict><key>cell</key><string>PSSliderCell</string><key>label</key><string>高度</string><key>key</key><string>height</string><key>default</key><integer>420</integer><key>min</key><integer>180</integer><key>max</key><integer>900</integer><key>showValue</key><true/></dict>
+<dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>打开历史记录</string><key>action</key><string>openHistory</string></dict>
+<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>系统提醒</string></dict>
+<dict><key>cell</key><string>PSSwitchCell</string><key>label</key><string>禁用粘贴与复制提醒</string><key>key</key><string>suppressTips</string><key>default</key><true/></dict>
+</array><key>title</key><string>clipboard</string></dict></plist>

@@ -1,0 +1,58 @@
+name: Build clipboard RootHide
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+env:
+  THEOS: ${{ github.workspace }}/theos-roothide
+  THEOS_IGNORE_PARALLEL_BUILDING_NOTICE: "yes"
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source and generate fixed-size icons
+        run: |
+          python3 tests/check.py
+          python3 tools/icon.py
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.4"
+      - uses: actions/checkout@v4
+        with:
+          repository: roothide/theos
+          path: theos-roothide
+          submodules: recursive
+      - name: Install build tools
+        run: |
+          "${THEOS}/bin/install-sdk" iPhoneOS16.5
+          brew install dpkg ldid xz
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Build and inspect RootHide package
+        run: |
+          make package FINALPACKAGE=1
+          package=$(find packages -name '*.deb' -print -quit)
+          test "$(dpkg-deb -f "$package" Package)" = com.moxuan1121.clipboard
+          test "$(dpkg-deb -f "$package" Architecture)" = iphoneos-arm64e
+          work=$(mktemp -d)
+          dpkg-deb -R "$package" "$work/root"
+          test -f "$work/root/usr/lib/TweakInject/Clipboard.dylib"
+          test ! -e "$work/root/var/jb"
+          test ! -e "$work/root/Library/MobileSubstrate"
+          test -f "$work/root/Library/PreferenceBundles/ClipboardPreferences.bundle/ClipboardPreferences"
+          test -f "$work/root/Library/PreferenceLoader/Preferences/Clipboard.plist"
+          for name in preinst postinst prerm postrm; do test ! -f "$work/root/DEBIAN/$name"; done
+          dpkg-deb --root-owner-group -Zxz -b "$work/root" "$work/package.deb"
+          mv "$work/package.deb" "$package"
+          dpkg-deb -I "$package"
+          dpkg-deb -c "$package"
+          shasum -a 256 "$package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipboard-roothide
+          path: packages/*.deb
+          if-no-files-found: error
