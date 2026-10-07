@@ -69,6 +69,11 @@ end_edit = ui.split('- (void)endSearchEditing {')[1].split('\n}')[0]
 assert end_edit.index('self.searching = NO') < end_edit.index('resignFirstResponder')
 assert 'searchBarCancelButtonClicked' not in ui
 assert 'saveText:text image:image source:source' in ui and '_iconCache.countLimit = 32' in ui
+assert 'BOOL blankIcon = !source.length || [source isEqualToString:@"com.apple.springboard"]' in ui
+assert 'if (!blankIcon && !icon &&' in ui
+assert 'cell.sourceIcon.backgroundColor = icon ? UIColor.clearColor : [UIColor colorWithWhite:0.97 alpha:1]' in ui
+assert 'cell.sourceIcon.layer.borderWidth = icon ? 0 : 0.5' in ui
+assert 'if (self.sourceIcon.image)' not in ui  # Placeholder keeps the same content alignment.
 settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8')
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings
 assert '_text.textColor = UIColor.labelColor;' in ui

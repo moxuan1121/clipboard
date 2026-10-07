@@ -148,7 +148,8 @@ static void CBPaste(BOOL (^allowed)(void)) {
     CGFloat gap = MAX(0, (body.size.height-side)/2);
     self.contentView.layer.cornerRadius = self.sourceIcon.layer.cornerRadius+gap;
     self.sourceIcon.frame = CGRectMake(gap, gap, side, side);
-    if (self.sourceIcon.image) { body.origin.x += side+gap*2; body.size.width = MAX(0, body.size.width-side-gap*2); }
+    body.origin.x += side+gap*2;
+    body.size.width = MAX(0, body.size.width-side-gap*2);
     self.text.frame = CGRectInset(body, 12, 4);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
@@ -454,12 +455,16 @@ static CBController *controller;
     cell.picture.hidden = !hasImage;
     cell.picture.image = nil;
     NSString *source = item[@"source"];
-    UIImage *icon = source.length ? [self.iconCache objectForKey:source] : nil;
-    if (!icon && source.length && [UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:format:scale:)]) {
+    BOOL blankIcon = !source.length || [source isEqualToString:@"com.apple.springboard"];
+    UIImage *icon = blankIcon ? nil : [self.iconCache objectForKey:source];
+    if (!blankIcon && !icon && [UIImage respondsToSelector:@selector(_applicationIconImageForBundleIdentifier:format:scale:)]) {
         icon = [UIImage _applicationIconImageForBundleIdentifier:source format:1 scale:UIScreen.mainScreen.scale];
         if (icon) [self.iconCache setObject:icon forKey:source];
     }
     cell.sourceIcon.image = icon;
+    cell.sourceIcon.backgroundColor = icon ? UIColor.clearColor : [UIColor colorWithWhite:0.97 alpha:1];
+    cell.sourceIcon.layer.borderWidth = icon ? 0 : 0.5;
+    cell.sourceIcon.layer.borderColor = [UIColor colorWithWhite:0.65 alpha:0.35].CGColor;
     [cell setNeedsLayout];
     cell.accessibilityLabel = hasImage ? @"图片" : item[@"text"];
     cell.isAccessibilityElement = YES;
