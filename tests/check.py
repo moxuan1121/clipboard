@@ -38,7 +38,7 @@ assert '点击复制或粘贴' not in ui and 'title.text = @"剪切板"' in ui
 assert 'RSKAOpenTokens' in ui and 'RSShowFloatingImage' in ui
 assert 'IOHIDEventSystemClientDispatchEvent' in ui and 'sendAction:' not in ui
 assert 'self.presentation != token' in ui and 'self.presentation != hiddenToken' in ui
-assert 'size.width-34)/2), 56)' in ui
+assert 'size.width-34)/2), 44.8)' in ui
 assert 'UIBlurEffectStyleSystemThinMaterialDark' in ui and '0.06 : 0.34' in ui
 assert '%init(URLApplication)' in ui and 'UIApplicationDidFinishLaunchingNotification' not in ui
 assert 'CBCompleteURL' not in ui and 'CGRectInset(body, 3, 3)' in ui
@@ -48,10 +48,21 @@ assert 'UIDevice.currentDevice' not in ui and 'UIDeviceOrientation' not in ui an
 assert 'noteInterfaceOrientationChanged:' in ui and 'activeInterfaceOrientation' in ui
 assert 'updateStatusBar:NO duration:0 force:YES' in ui
 assert 'colorWithWhite:0.24 alpha:1' in ui and 'borderWidth = 0.5' in ui
-assert 'colorWithRed:0.985 green:0.99 blue:1 alpha:1' in ui and 'shadowOpacity = dark ? 0 : 0.045' in ui
+assert 'colorWithRed:0.88 green:0.905 blue:0.94 alpha:1' in ui and 'shadowOpacity = dark ? 0 : 0.045' in ui
 assert 'self.layer.shadowPath =' in ui
 assert 'self.grid.alwaysBounceVertical = YES' in ui and 'CBFilterHistory(self.allItems, self.searchBar.text)' in ui
-assert 'self.sourceIcon.frame = CGRectMake(3, 3, side, side)' in ui and 'body.size.height-6' in ui
+assert 'self.sourceIcon.frame = CGRectMake(gap, gap, side, side)' in ui and 'MIN(37.5,' in ui
+assert 'CGRectInset(body, 12, 8)' in ui and '(body.size.height-side)/2' in ui
+assert abs(56*0.8-44.8) < 1e-9 and 50*0.75 == 37.5
+assert (44.8-37.5)/2 > 3  # Equal top, bottom and left margins.
+assert '[self.listContainer addSubview:self.searchBar]' in ui and '[self.grid addSubview:self.searchBar]' not in ui
+assert 'searchBarShouldEndEditing:(UISearchBar *)bar { return !self.searching; }' in ui
+assert 'self.searchBar.enablesReturnKeyAutomatically = NO' in ui
+text_change = ui.split('- (void)searchBar:(UISearchBar *)bar textDidChange:')[1].split('\n- (')[0]
+assert 'endSearchEditing' not in text_change and 'resignFirstResponder' not in text_change
+end_edit = ui.split('- (void)endSearchEditing {')[1].split('\n}')[0]
+assert end_edit.index('self.searching = NO') < end_edit.index('resignFirstResponder')
+assert 'searchBarCancelButtonClicked' not in ui
 assert 'saveText:text image:image source:source' in ui and '_iconCache.countLimit = 32' in ui
 settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8')
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings

@@ -104,7 +104,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
         [self.contentView addSubview:_picture];
         _sourceIcon = [UIImageView new];
         _sourceIcon.contentMode = UIViewContentModeScaleAspectFit;
-        _sourceIcon.layer.cornerRadius = 11;
+        _sourceIcon.layer.cornerRadius = 8.25;
         _sourceIcon.clipsToBounds = YES;
         [self.contentView addSubview:_sourceIcon];
         _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -127,9 +127,9 @@ static void CBPaste(BOOL (^allowed)(void)) {
 }
 - (void)updateAppearance {
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : [UIColor colorWithRed:0.985 green:0.99 blue:1 alpha:1];
+    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : [UIColor colorWithRed:0.88 green:0.905 blue:0.94 alpha:1];
     self.contentView.layer.borderWidth = 0.5;
-    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : [UIColor colorWithWhite:0 alpha:0.07]).CGColor;
+    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : [UIColor colorWithWhite:0 alpha:0.10]).CGColor;
     self.clipsToBounds = NO;
     self.layer.shadowColor = UIColor.blackColor.CGColor;
     self.layer.shadowOpacity = dark ? 0 : 0.045;
@@ -144,10 +144,11 @@ static void CBPaste(BOOL (^allowed)(void)) {
     [super layoutSubviews];
     CGRect body = self.contentView.bounds;
     if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-48);
-    CGFloat side = MIN(MAX(0, body.size.height-6), body.size.width);
-    self.sourceIcon.frame = CGRectMake(3, 3, side, side);
-    if (self.sourceIcon.image) { body.origin.x += side+6; body.size.width = MAX(0, body.size.width-side-6); }
-    self.text.frame = CGRectInset(body, 12, 10);
+    CGFloat side = MIN(37.5, MAX(0, MIN(body.size.height, body.size.width)));
+    CGFloat gap = MAX(0, (body.size.height-side)/2);
+    self.sourceIcon.frame = CGRectMake(gap, gap, side, side);
+    if (self.sourceIcon.image) { body.origin.x += side+gap*2; body.size.width = MAX(0, body.size.width-side-gap*2); }
+    self.text.frame = CGRectInset(body, 12, 8);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
     self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:16].CGPath;
@@ -183,6 +184,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @property(nonatomic,strong) UIVisualEffectView *material;
 @property(nonatomic,strong) UIView *materialTint;
 @property(nonatomic,strong) UICollectionView *grid;
+@property(nonatomic,strong) UIView *listContainer;
 @property(nonatomic,weak) CBCell *revealedCell;
 @property(nonatomic,strong) CBStore *store;
 @property(nonatomic,strong) NSArray *items;
@@ -273,10 +275,16 @@ static CBController *controller;
     self.searchBar.delegate = self;
     self.searchBar.placeholder = @"搜索剪切板";
     self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
-    [self.grid addSubview:self.searchBar];
+    self.searchBar.returnKeyType = UIReturnKeyDone;
+    self.searchBar.enablesReturnKeyAutomatically = NO;
+    // Keep the editor outside collection-view reload/reuse so filtering cannot drop focus.
+    self.listContainer = [UIView new];
+    self.listContainer.clipsToBounds = YES;
+    [self.listContainer addSubview:self.grid];
+    [self.listContainer addSubview:self.searchBar];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [self.grid addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)]];
-    [self.panel addSubview:self.grid];
+    [self.panel addSubview:self.listContainer];
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -290,10 +298,14 @@ static CBController *controller;
     self.panel.center = CGPointMake(CGRectGetMidX(b), bottom-height/2);
     self.material.frame = self.panel.bounds;
     self.materialTint.frame = self.material.bounds;
-    self.grid.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
-    self.searchBar.frame = CGRectMake(8, 4, MAX(0, width-16), 48);
+    self.listContainer.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
+    self.grid.frame = self.listContainer.bounds;
+    [self scrollViewDidScroll:self.grid];
     self.grid.contentInset = UIEdgeInsetsMake(0, 0, self.searching ? 0 : self.view.safeAreaInsets.bottom, 0);
     [self.grid.collectionViewLayout invalidateLayout];
+}
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    self.searchBar.frame = CGRectMake(8, 4-scrollView.contentOffset.y, MAX(0, scrollView.bounds.size.width-16), 48);
 }
 - (UICollectionReusableView *)collectionView:(UICollectionView *)grid viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)path {
     UICollectionReusableView *header = [grid dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"search" forIndexPath:path];
@@ -316,22 +328,16 @@ static CBController *controller;
     self.searching = YES;
     for (UIWindow *window in self.overlay.windowScene.windows) if (window.isKeyWindow && window != self.overlay) { self.previousKeyWindow = window; break; }
     [self.overlay makeKeyWindow];
-    [bar setShowsCancelButton:YES animated:YES];
     return YES;
 }
+- (BOOL)searchBarShouldEndEditing:(UISearchBar *)bar { return !self.searching; }
 - (void)endSearchEditing {
-    [self.searchBar resignFirstResponder];
     self.searching = NO;
+    [self.searchBar resignFirstResponder];
     self.keyboardFrame = CGRectZero;
-    [self.searchBar setShowsCancelButton:NO animated:YES];
     [self.previousKeyWindow makeKeyWindow];
     self.previousKeyWindow = nil;
     [self.view setNeedsLayout];
-}
-- (void)searchBarCancelButtonClicked:(UISearchBar *)bar {
-    bar.text = @"";
-    [self endSearchEditing];
-    [self applySearch];
 }
 - (void)searchBarSearchButtonClicked:(UISearchBar *)bar { [self endSearchEditing]; }
 - (void)keyboardChanged:(NSNotification *)notification {
@@ -341,7 +347,7 @@ static CBController *controller;
     [UIView animateWithDuration:duration animations:^{ [self.view setNeedsLayout]; [self.view layoutIfNeeded]; }];
 }
 - (CGSize)collectionView:(UICollectionView *)grid layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)path {
-    return CGSizeMake(floor((grid.bounds.size.width-34)/2), 56);
+    return CGSizeMake(floor((grid.bounds.size.width-34)/2), 44.8);
 }
 - (void)applyMaterial {
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;

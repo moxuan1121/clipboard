@@ -9,6 +9,10 @@ int main(void) {
         assert(CBFilterHistory(history, @"CAFE").count == 1);
         assert(CBFilterHistory(history, @"  切板  ").count == 1);
         assert(CBFilterHistory(history, @"absent").count == 0);
+        // Deleting a query down to one character, then clearing it, keeps filtering valid.
+        assert(CBFilterHistory(history, @"剪切").count == 1);
+        assert(CBFilterHistory(history, @"剪").count == 1);
+        assert(CBFilterHistory(history, @"").count == 3);
         assert(history.count == 3);
         assert(CBScreenOrientation(1) == 1);
         assert(CBScreenOrientation(3) == 3 && CBScreenOrientation(4) == 4);
