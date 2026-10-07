@@ -19,6 +19,36 @@
 + (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)identifier format:(int)format scale:(CGFloat)scale;
 @end
 
+static UIImage *CBPlaceholderIcon(void) {
+    static UIImage *image;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CGFloat side = 37.5;
+        CGRect bounds = CGRectMake(0, 0, side, side);
+        image = [[[UIGraphicsImageRenderer alloc] initWithSize:bounds.size] imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [[UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:8.25] addClip];
+            [UIColor.whiteColor setFill];
+            UIRectFill(bounds);
+            [[UIColor colorWithWhite:0.55 alpha:0.8] setStroke];
+            UIBezierPath *grid = [UIBezierPath bezierPath];
+            grid.lineWidth = 0.25;
+            for (int i = 1; i < 6; i++) {
+                CGFloat position = side*i/6;
+                [grid moveToPoint:CGPointMake(position, 0)]; [grid addLineToPoint:CGPointMake(position, side)];
+                [grid moveToPoint:CGPointMake(0, position)]; [grid addLineToPoint:CGPointMake(side, position)];
+            }
+            [grid moveToPoint:CGPointZero]; [grid addLineToPoint:CGPointMake(side, side)];
+            [grid moveToPoint:CGPointMake(side, 0)]; [grid addLineToPoint:CGPointMake(0, side)];
+            for (NSNumber *fraction in @[@0.9, @0.55, @0.4]) {
+                CGFloat inset = side*(1-fraction.doubleValue)/2;
+                [grid appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectInset(bounds, inset, inset)]];
+            }
+            [grid stroke];
+        }];
+    });
+    return image;
+}
+
 typedef struct __IOHIDEvent *IOHIDEventRef;
 typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
 extern "C" {
@@ -461,7 +491,7 @@ static CBController *controller;
         icon = [UIImage _applicationIconImageForBundleIdentifier:source format:1 scale:UIScreen.mainScreen.scale];
         if (icon) [self.iconCache setObject:icon forKey:source];
     }
-    cell.sourceIcon.image = icon;
+    cell.sourceIcon.image = icon ?: CBPlaceholderIcon();
     cell.sourceIcon.backgroundColor = icon ? UIColor.clearColor : [UIColor colorWithWhite:0.97 alpha:1];
     cell.sourceIcon.layer.borderWidth = icon ? 0 : 0.5;
     cell.sourceIcon.layer.borderColor = [UIColor colorWithWhite:0.65 alpha:0.35].CGColor;

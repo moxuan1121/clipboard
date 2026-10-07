@@ -73,6 +73,12 @@ assert 'BOOL blankIcon = !source.length || [source isEqualToString:@"com.apple.s
 assert 'if (!blankIcon && !icon &&' in ui
 assert 'cell.sourceIcon.backgroundColor = icon ? UIColor.clearColor : [UIColor colorWithWhite:0.97 alpha:1]' in ui
 assert 'cell.sourceIcon.layer.borderWidth = icon ? 0 : 0.5' in ui
+assert 'cell.sourceIcon.image = icon ?: CBPlaceholderIcon()' in ui
+placeholder = ui.split('static UIImage *CBPlaceholderIcon(void) {')[1].split('typedef struct')[0]
+assert 'dispatch_once(&once' in placeholder and 'UIGraphicsImageRenderer' in placeholder
+assert 'grid.lineWidth = 0.25' in placeholder and 'bezierPathWithOvalInRect' in placeholder
+assert 'for (int i = 1; i < 6; i++)' in placeholder and '@[@0.9, @0.55, @0.4]' in placeholder
+assert 'cornerRadius:8.25] addClip' in placeholder
 assert 'if (self.sourceIcon.image)' not in ui  # Placeholder keeps the same content alignment.
 settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8')
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings
