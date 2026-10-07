@@ -48,7 +48,8 @@ assert 'UIDevice.currentDevice' not in ui and 'UIDeviceOrientation' not in ui an
 assert 'noteInterfaceOrientationChanged:' in ui and 'activeInterfaceOrientation' in ui
 assert 'updateStatusBar:NO duration:0 force:YES' in ui
 assert 'colorWithWhite:0.24 alpha:1' in ui and 'borderWidth = 0.5' in ui
-assert 'colorWithRed:0.88 green:0.905 blue:0.94 alpha:1' in ui and 'shadowOpacity = dark ? 0 : 0.045' in ui
+assert 'colorWithWhite:0.91 alpha:1' in ui and 'shadowOpacity = dark ? 0 : 0.025' in ui
+assert 'colorWithWhite:0 alpha:0.06' in ui
 assert 'self.layer.shadowPath =' in ui
 assert 'self.grid.alwaysBounceVertical = YES' in ui and 'CBFilterHistory(self.allItems, self.searchBar.text)' in ui
 assert 'self.sourceIcon.frame = CGRectMake(gap, gap, side, side)' in ui and 'MIN(37.5,' in ui

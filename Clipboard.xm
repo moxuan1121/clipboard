@@ -157,12 +157,12 @@ static void CBPaste(BOOL (^allowed)(void)) {
 }
 - (void)updateAppearance {
     BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : [UIColor colorWithRed:0.88 green:0.905 blue:0.94 alpha:1];
+    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : [UIColor colorWithWhite:0.91 alpha:1];
     self.contentView.layer.borderWidth = 0.5;
-    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : [UIColor colorWithWhite:0 alpha:0.10]).CGColor;
+    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : [UIColor colorWithWhite:0 alpha:0.06]).CGColor;
     self.clipsToBounds = NO;
     self.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.layer.shadowOpacity = dark ? 0 : 0.045;
+    self.layer.shadowOpacity = dark ? 0 : 0.025;
     self.layer.shadowRadius = 3;
     self.layer.shadowOffset = CGSizeMake(0, 2);
 }
