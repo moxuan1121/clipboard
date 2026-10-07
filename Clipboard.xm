@@ -83,11 +83,11 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @implementation CBCell
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        self.contentView.backgroundColor = UIColor.tertiarySystemBackgroundColor;
         self.contentView.layer.cornerRadius = 16;
         self.contentView.clipsToBounds = YES;
         _text = [UILabel new];
         _text.font = [UIFont systemFontOfSize:15];
+        _text.textColor = UIColor.labelColor;
         _text.numberOfLines = 0;
         [self.contentView addSubview:_text];
         _picture = [UIImageView new];
@@ -107,8 +107,19 @@ static void CBPaste(BOOL (^allowed)(void)) {
             swipe.direction = direction.unsignedIntegerValue;
             [self addGestureRecognizer:swipe];
         }
+        [self updateAppearance];
     }
     return self;
+}
+- (void)updateAppearance {
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    self.contentView.backgroundColor = dark ? [UIColor colorWithWhite:0.24 alpha:1] : UIColor.tertiarySystemBackgroundColor;
+    self.contentView.layer.borderWidth = dark ? 0.5 : 0;
+    self.contentView.layer.borderColor = (dark ? [UIColor colorWithWhite:1 alpha:0.18] : UIColor.clearColor).CGColor;
+}
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    if (!previous || [self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) [self updateAppearance];
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -134,6 +145,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
     self.deleteAction = nil;
     self.revealAction = nil;
     self.picture.image = nil;
+    [self updateAppearance];
 }
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];

@@ -41,6 +41,8 @@ assert '- (BOOL)shouldAutorotate { return NO; }' in ui and '- (BOOL)autorotate {
 assert 'UIDevice.currentDevice' not in ui and 'UIDeviceOrientation' not in ui and 'CMMotionManager' not in ui
 assert 'noteInterfaceOrientationChanged:' in ui and 'activeInterfaceOrientation' in ui
 assert 'updateStatusBar:NO duration:0 force:YES' in ui
+assert 'colorWithWhite:0.24 alpha:1' in ui and 'borderWidth = dark ? 0.5 : 0' in ui
+assert '_text.textColor = UIColor.labelColor;' in ui
 delete = next(s for s in sql if s == 'DELETE FROM history WHERE id=?')
 before = list(db.execute('SELECT id,text,image FROM history ORDER BY id'))
 db.execute(delete, (500,))
