@@ -36,6 +36,11 @@ assert 'size.width-34)/2), 56)' in ui
 assert 'UIBlurEffectStyleSystemThinMaterialDark' in ui and '0.06 : 0.34' in ui
 assert '%init(URLApplication)' in ui and 'UIApplicationDidFinishLaunchingNotification' not in ui
 assert 'CBCompleteURL' not in ui and 'CGRectInset(body, 3, 3)' in ui
+assert 'previous.deleteRevealed = NO;' in ui and 'self.revealedCell = visible ? cell : nil;' in ui
+assert '- (BOOL)shouldAutorotate { return NO; }' in ui and '- (BOOL)autorotate { return NO; }' in ui
+assert 'UIDevice.currentDevice' not in ui and 'UIDeviceOrientation' not in ui and 'CMMotionManager' not in ui
+assert 'noteInterfaceOrientationChanged:' in ui and 'activeInterfaceOrientation' in ui
+assert 'updateStatusBar:NO duration:0 force:YES' in ui
 delete = next(s for s in sql if s == 'DELETE FROM history WHERE id=?')
 before = list(db.execute('SELECT id,text,image FROM history ORDER BY id'))
 db.execute(delete, (500,))

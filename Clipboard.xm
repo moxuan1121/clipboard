@@ -9,6 +9,7 @@
 #import <objc/runtime.h>
 #include <string.h>
 #import "URLRoute.h"
+#import "ScreenOrientation.h"
 
 typedef struct __IOHIDEvent *IOHIDEventRef;
 typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
@@ -20,7 +21,22 @@ extern void IOHIDEventSystemClientDispatchEvent(IOHIDEventSystemClientRef, IOHID
 }
 @interface UIApplication (ClipboardHost)
 - (id)_accessibilityFrontMostApplication;
+- (UIInterfaceOrientation)activeInterfaceOrientation;
 @end
+@interface UIWindow (ClipboardOrientation)
+- (void)_setWindowControlsStatusBarOrientation:(BOOL)controls;
+- (void)_setRotatableViewOrientation:(UIInterfaceOrientation)orientation updateStatusBar:(BOOL)update duration:(NSTimeInterval)duration force:(BOOL)force;
+@end
+static UIInterfaceOrientation CBActiveOrientation(UIWindowScene *scene) {
+    UIApplication *app = UIApplication.sharedApplication;
+    UIInterfaceOrientation value = [app respondsToSelector:@selector(activeInterfaceOrientation)] ? [app activeInterfaceOrientation] : UIInterfaceOrientationUnknown;
+    if (value < 1 || value > 4) value = scene.interfaceOrientation;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    if (value < 1 || value > 4) value = app.statusBarOrientation;
+#pragma clang diagnostic pop
+    return (UIInterfaceOrientation)CBScreenOrientation((int)value);
+}
 static id CBFrontApplication(void) {
     UIApplication *app = UIApplication.sharedApplication;
     return [app respondsToSelector:@selector(_accessibilityFrontMostApplication)] ? [app _accessibilityFrontMostApplication] : nil;
@@ -54,12 +70,14 @@ static void CBPaste(BOOL (^allowed)(void)) {
 }
 
 @interface CBWindow : UIWindow
+- (void)updateOrientation:(UIInterfaceOrientation)orientation;
 @end
 @interface CBCell : UICollectionViewCell
 @property(nonatomic,strong) UILabel *text;
 @property(nonatomic,strong) UIImageView *picture;
 @property(nonatomic,strong) UIButton *deleteButton;
 @property(nonatomic,copy) void (^deleteAction)(NSNumber *);
+@property(nonatomic,copy) void (^revealAction)(CBCell *, BOOL);
 @property(nonatomic) BOOL deleteRevealed;
 @end
 @implementation CBCell
@@ -107,14 +125,14 @@ static void CBPaste(BOOL (^allowed)(void)) {
     [self setNeedsLayout];
 }
 - (void)swiped:(UISwipeGestureRecognizer *)gesture {
-    self.deleteRevealed = gesture.direction == UISwipeGestureRecognizerDirectionLeft;
-    [UIView animateWithDuration:0.18 animations:^{ [self layoutIfNeeded]; }];
+    if (self.revealAction) self.revealAction(self, gesture.direction == UISwipeGestureRecognizerDirectionLeft);
 }
 - (void)deletePressed { if (self.deleteRevealed && self.deleteAction) self.deleteAction(@(self.tag)); }
 - (void)prepareForReuse {
     [super prepareForReuse];
     self.deleteRevealed = NO;
     self.deleteAction = nil;
+    self.revealAction = nil;
     self.picture.image = nil;
 }
 - (void)setHighlighted:(BOOL)highlighted {
@@ -129,6 +147,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @property(nonatomic,strong) UIVisualEffectView *material;
 @property(nonatomic,strong) UIView *materialTint;
 @property(nonatomic,strong) UICollectionView *grid;
+@property(nonatomic,weak) CBCell *revealedCell;
 @property(nonatomic,strong) CBStore *store;
 @property(nonatomic,strong) NSArray *items;
 @property(nonatomic,strong) dispatch_queue_t queue;
@@ -144,10 +163,22 @@ static void CBPaste(BOOL (^allowed)(void)) {
 - (void)hide;
 - (void)hideWithCompletion:(dispatch_block_t)completion;
 - (void)deleteItem:(NSNumber *)identifier;
+- (void)revealDeleteForCell:(CBCell *)cell visible:(BOOL)visible;
 @end
 static CBController *controller;
 
 @implementation CBController
+- (BOOL)shouldAutorotate { return NO; }
+- (BOOL)autorotate { return NO; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation { return CBActiveOrientation(self.overlay.windowScene); }
+- (void)revealDeleteForCell:(CBCell *)cell visible:(BOOL)visible {
+    CBCell *previous = self.revealedCell;
+    previous.deleteRevealed = NO;
+    self.revealedCell = visible ? cell : nil;
+    cell.deleteRevealed = visible;
+    [UIView animateWithDuration:0.18 animations:^{ [previous layoutIfNeeded]; [cell layoutIfNeeded]; }];
+}
 - (instancetype)init {
     if ((self = [super init])) {
         _queue = dispatch_queue_create("com.moxuan1121.clipboard.storage", DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL);
@@ -227,6 +258,7 @@ static CBController *controller;
     [self hideWithCompletion:nil];
 }
 - (void)hideWithCompletion:(dispatch_block_t)completion {
+    [self revealDeleteForCell:nil visible:NO];
     self.visible = NO;
     self.selecting = NO;
     self.pasteApplication = nil;
@@ -249,6 +281,7 @@ static CBController *controller;
     ++self.presentation;
     self.visible = YES;
     self.pasteApplication = CBFrontApplication();
+    [self.overlay updateOrientation:CBActiveOrientation(self.overlay.windowScene)];
     self.overlay.hidden = NO;
     [self.view setNeedsLayout];
     [self.view layoutIfNeeded];
@@ -277,9 +310,14 @@ static CBController *controller;
     NSData *image = [pb dataForPasteboardType:@"public.png"] ?: [pb dataForPasteboardType:@"public.jpeg"];
     if (!image && pb.hasImages) image = UIImagePNGRepresentation(pb.image);
     if (!text.length && !image.length) return;
+    NSInteger change = pb.changeCount;
     dispatch_async(self.queue, ^{
         if (!self.store) self.store = [CBStore new];
-        if ([self.store saveText:text image:image]) dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible) [self refresh]; });
+        if ([self.store saveText:text image:image]) dispatch_async(dispatch_get_main_queue(), ^{
+            if (!self.locked && [CBDefaults() boolForKey:@"enabled"] && UIPasteboard.generalPasteboard.changeCount == change)
+                AudioServicesPlaySystemSound(1519);
+            if (self.visible) [self refresh];
+        });
     });
 }
 - (NSInteger)collectionView:(UICollectionView *)grid numberOfItemsInSection:(NSInteger)section { return self.items.count; }
@@ -288,9 +326,11 @@ static CBController *controller;
     NSDictionary *item = self.items[path.item];
     BOOL hasImage = [item[@"image"] boolValue];
     cell.tag = [item[@"id"] integerValue];
+    if (self.revealedCell == cell) self.revealedCell = nil;
     cell.deleteRevealed = NO;
     __weak CBController *weakSelf = self;
     cell.deleteAction = ^(NSNumber *identifier) { [weakSelf deleteItem:identifier]; };
+    cell.revealAction = ^(CBCell *sender, BOOL visible) { [weakSelf revealDeleteForCell:sender visible:visible]; };
     cell.text.text = hasImage ? nil : item[@"text"];
     cell.text.hidden = hasImage;
     cell.picture.hidden = !hasImage;
@@ -317,7 +357,7 @@ static CBController *controller;
 - (void)collectionView:(UICollectionView *)grid didSelectItemAtIndexPath:(NSIndexPath *)path {
     [grid deselectItemAtIndexPath:path animated:NO];
     CBCell *cell = (CBCell *)[grid cellForItemAtIndexPath:path];
-    if (cell.deleteRevealed) { cell.deleteRevealed = NO; return; }
+    if (cell.deleteRevealed) { [self revealDeleteForCell:cell visible:NO]; return; }
     if (self.selecting || path.item >= self.items.count) return;
     self.selecting = YES;
     NSUInteger token = self.presentation;
@@ -404,6 +444,16 @@ static CBController *controller;
 
 // The root control only intercepts outside taps while the history is visible.
 @implementation CBWindow
+- (void)updateOrientation:(UIInterfaceOrientation)orientation {
+    orientation = (UIInterfaceOrientation)CBScreenOrientation((int)orientation);
+    [controller revealDeleteForCell:nil visible:NO];
+    // RegionShot's window-only rotation: do not rotate the app or its status bar.
+    if ([self respondsToSelector:@selector(_setWindowControlsStatusBarOrientation:)]) [self _setWindowControlsStatusBarOrientation:NO];
+    if ([self respondsToSelector:@selector(_setRotatableViewOrientation:updateStatusBar:duration:force:)])
+        [self _setRotatableViewOrientation:orientation updateStatusBar:NO duration:0 force:YES];
+    [self.rootViewController.view setNeedsLayout];
+    [self.rootViewController.view layoutIfNeeded];
+}
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     return controller.visible ? [super hitTest:point withEvent:event] : nil;
@@ -499,6 +549,28 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
 %end
 %end
 
+%group ScreenTarget
+%hook SpringBoard
+- (void)noteInterfaceOrientationChanged:(long long)orientation duration:(double)duration updateMirroredDisplays:(BOOL)update force:(BOOL)force logMessage:(id)message {
+    %orig;
+    if (orientation < 1 || orientation > 4) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (controller.visible) [controller.overlay updateOrientation:(UIInterfaceOrientation)orientation];
+    });
+}
+%end
+%end
+%group ScreenFallback
+%hook SpringBoard
+- (void)_postActiveInterfaceOrientationChangedNotificationAnimated:(BOOL)animated {
+    %orig;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (controller.visible) [controller.overlay updateOrientation:CBActiveOrientation(controller.overlay.windowScene)];
+    });
+}
+%end
+%end
+
 %ctor {
     @autoreleasepool {
         NSString *process = NSProcessInfo.processInfo.processName;
@@ -511,6 +583,11 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
             // Match RegionShot: install after class loading, only inside SpringBoard.
             %init(URLApplication);
             Class springBoard = NSClassFromString(@"SpringBoard"), service = NSClassFromString(@"FBSSystemService");
+            if (CBURLMethod(springBoard, @"noteInterfaceOrientationChanged:duration:updateMirroredDisplays:force:logMessage:", @[@"ql", @"d", @"Bc", @"Bc", @"@"])) {
+                %init(ScreenTarget);
+            } else if (CBURLMethod(springBoard, @"_postActiveInterfaceOrientationChangedNotificationAnimated:", @[@"Bc"])) {
+                %init(ScreenFallback);
+            }
             if (CBURLMethod(springBoard, @"applicationOpenURL:", @[@"@"])) {
                 %init(URLShort);
             }
