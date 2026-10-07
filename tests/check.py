@@ -19,4 +19,17 @@ assert db.execute('SELECT image FROM history WHERE id=500').fetchone()[0] == b'i
 filter_text = (root / 'Clipboard.plist').read_text()
 assert 'com.apple.UIKit' not in filter_text and 'com.apple.springboard' in filter_text
 assert '/var/jb' not in (root / 'Makefile').read_text()
-print('Plists, 500-item storage, image persistence and process filters checked.')
+assert 'jbroot(@"/var/mobile/Library/Clipboard")' in source
+assert 'sqlite3_backup_init' in source and 'SQLITE_OPEN_READONLY' in source
+db.commit()
+destination = sqlite3.connect(':memory:')
+db.backup(destination)
+assert list(destination.execute('SELECT * FROM history')) == list(db.execute('SELECT * FROM history'))
+assert len(list(db.execute('SELECT * FROM history'))) == 500  # migration leaves source intact
+ui = (root / 'Clipboard.xm').read_text(encoding='utf-8')
+assert 'UITableView' not in ui and 'self.trigger' not in ui
+assert '点击复制或粘贴' not in ui and 'title.text = @"剪切板"' in ui
+assert 'RSKAOpenTokens' in ui and 'RSShowFloatingImage' in ui
+assert 'IOHIDEventSystemClientDispatchEvent' in ui and 'sendAction:' not in ui
+assert 'self.presentation != token' in ui and 'self.presentation != hiddenToken' in ui
+print('Plists, 500-item storage, SQLite backup, UI guards, RegionShot APIs and process filters checked.')

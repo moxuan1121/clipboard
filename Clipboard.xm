@@ -3,38 +3,110 @@
 #import <ImageIO/ImageIO.h>
 #import <notify.h>
 #import <AudioToolbox/AudioToolbox.h>
+#import <mach/mach_time.h>
+#import <unistd.h>
+#import <dlfcn.h>
+#import <objc/runtime.h>
+#include <string.h>
+#import "URLRoute.h"
+
+typedef struct __IOHIDEvent *IOHIDEventRef;
+typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
+extern "C" {
+extern IOHIDEventSystemClientRef IOHIDEventSystemClientCreate(CFAllocatorRef);
+extern IOHIDEventRef IOHIDEventCreateKeyboardEvent(CFAllocatorRef, uint64_t, uint32_t, uint32_t, boolean_t, uint32_t);
+extern void IOHIDEventSetSenderID(IOHIDEventRef, uint64_t);
+extern void IOHIDEventSystemClientDispatchEvent(IOHIDEventSystemClientRef, IOHIDEventRef);
+}
+@interface UIApplication (ClipboardHost)
+- (id)_accessibilityFrontMostApplication;
+@end
+static id CBFrontApplication(void) {
+    UIApplication *app = UIApplication.sharedApplication;
+    return [app respondsToSelector:@selector(_accessibilityFrontMostApplication)] ? [app _accessibilityFrontMostApplication] : nil;
+}
+// The OS routes Cmd+V to the focused app, as in Kayoko's simulated paste.
+// Build all four events before pressing a key so allocation failure cannot leave it held.
+static void CBPaste(dispatch_queue_t queue) {
+    dispatch_async(queue, ^{
+        IOHIDEventSystemClientRef client = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        if (!client) return;
+        uint32_t usages[] = {0xE3, 0x19, 0x19, 0xE3};
+        IOHIDEventRef events[4] = {NULL};
+        BOOL complete = YES;
+        for (int i = 0; i < 4; i++) {
+            events[i] = IOHIDEventCreateKeyboardEvent(kCFAllocatorDefault, mach_absolute_time(), 7, usages[i], i < 2, 0);
+            if (!events[i]) complete = NO;
+        }
+        if (complete) for (int i = 0; i < 4; i++) {
+            if (i == 2) usleep(50000);
+            IOHIDEventSetSenderID(events[i], 0x8000000817319371ULL);
+            IOHIDEventSystemClientDispatchEvent(client, events[i]);
+        }
+        for (int i = 0; i < 4; i++) if (events[i]) CFRelease(events[i]);
+        CFRelease(client);
+    });
+}
 
 @interface CBWindow : UIWindow
 @end
-@interface UIKeyboardImpl : UIView
-+ (instancetype)activeInstance;
-- (id)inputDelegate;
+@interface CBCell : UICollectionViewCell
+@property(nonatomic,strong) UILabel *text;
+@property(nonatomic,strong) UIImageView *picture;
+@end
+@implementation CBCell
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.contentView.backgroundColor = UIColor.tertiarySystemBackgroundColor;
+        self.contentView.layer.cornerRadius = 16;
+        self.contentView.clipsToBounds = YES;
+        _text = [UILabel new];
+        _text.font = [UIFont systemFontOfSize:15];
+        _text.numberOfLines = 0;
+        [self.contentView addSubview:_text];
+        _picture = [UIImageView new];
+        _picture.contentMode = UIViewContentModeScaleAspectFit;
+        [self.contentView addSubview:_picture];
+    }
+    return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.text.frame = CGRectInset(self.contentView.bounds, 12, 10);
+    self.picture.frame = self.contentView.bounds;
+}
+- (void)setHighlighted:(BOOL)highlighted {
+    [super setHighlighted:highlighted];
+    self.contentView.alpha = highlighted ? 0.65 : 1;
+}
 @end
 
-@interface CBController : UIViewController <UITableViewDataSource, UITableViewDelegate>
+@interface CBController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
 @property(nonatomic,strong) CBWindow *overlay;
 @property(nonatomic,strong) UIView *panel;
-@property(nonatomic,strong) UITableView *table;
-@property(nonatomic,strong) UIButton *trigger;
+@property(nonatomic,strong) UICollectionView *grid;
 @property(nonatomic,strong) CBStore *store;
 @property(nonatomic,strong) NSArray *items;
 @property(nonatomic,strong) dispatch_queue_t queue;
 @property(nonatomic) NSInteger lastChange;
 @property(nonatomic) BOOL visible;
 @property(nonatomic) BOOL locked;
-@property(nonatomic,weak) UIResponder *pasteTarget;
+@property(nonatomic,strong) id pasteApplication;
+@property(nonatomic) NSUInteger presentation;
+@property(nonatomic) BOOL selecting;
 - (void)reloadPreferences;
 - (void)capture;
 - (void)show;
 - (void)hide;
+- (void)hideWithCompletion:(dispatch_block_t)completion;
 @end
 static CBController *controller;
 
 @implementation CBController
 - (instancetype)init {
     if ((self = [super init])) {
-        _queue = dispatch_queue_create("com.moxuan1121.clipboard.storage", DISPATCH_QUEUE_SERIAL);
-        dispatch_sync(_queue, ^{ self.store = [CBStore new]; });
+        _queue = dispatch_queue_create("com.moxuan1121.clipboard.storage", DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL);
+        dispatch_async(_queue, ^{ self.store = [CBStore new]; });
         _lastChange = [UIPasteboard generalPasteboard].changeCount;
         _items = @[];
     }
@@ -51,23 +123,20 @@ static CBController *controller;
     self.panel.clipsToBounds = YES;
     [root addSubview:self.panel];
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 8, 220, 42)];
-    title.text = @"剪贴板 · 历史记录";
+    title.text = @"剪切板";
     title.font = [UIFont boldSystemFontOfSize:18];
     [self.panel addSubview:title];
-    self.table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
-    self.table.dataSource = self;
-    self.table.delegate = self;
-    self.table.rowHeight = 72;
-    self.table.backgroundColor = UIColor.clearColor;
-    [self.panel addSubview:self.table];
-    self.trigger = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.trigger setTitle:@"剪贴板" forState:UIControlStateNormal];
-    self.trigger.backgroundColor = UIColor.systemBlueColor;
-    [self.trigger setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    self.trigger.layer.cornerRadius = 20;
-    self.trigger.accessibilityLabel = @"打开剪贴板历史";
-    [self.trigger addTarget:self action:@selector(show) forControlEvents:UIControlEventTouchUpInside];
-    [root addSubview:self.trigger];
+    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
+    layout.sectionInset = UIEdgeInsetsMake(0, 12, 12, 12);
+    layout.minimumInteritemSpacing = 10;
+    layout.minimumLineSpacing = 10;
+    self.grid = [[UICollectionView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
+    self.grid.dataSource = self;
+    self.grid.delegate = self;
+    self.grid.backgroundColor = UIColor.clearColor;
+    [self.grid registerClass:CBCell.class forCellWithReuseIdentifier:@"history"];
+    [self.grid addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)]];
+    [self.panel addSubview:self.grid];
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -75,41 +144,63 @@ static CBController *controller;
     CGFloat value = [CBDefaults() doubleForKey:@"height"];
     CGFloat height = MIN(MAX(isfinite(value) ? value : 420, 180), b.size.height);
     CGFloat width = b.size.width > b.size.height ? MIN(520, b.size.width) : b.size.width;
-    self.panel.frame = CGRectMake((b.size.width-width)/2, b.size.height-height, width, height);
-    self.table.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
-    self.table.contentInset = UIEdgeInsetsMake(0, 0, self.view.safeAreaInsets.bottom, 0);
-    self.trigger.frame = CGRectMake(b.size.width-92-self.view.safeAreaInsets.right, MAX(20, b.size.height*0.6), 80, 40);
+    self.panel.bounds = CGRectMake(0, 0, width, height);
+    self.panel.center = CGPointMake(CGRectGetMidX(b), b.size.height-height/2);
+    self.grid.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
+    self.grid.contentInset = UIEdgeInsetsMake(0, 0, self.view.safeAreaInsets.bottom, 0);
+    [self.grid.collectionViewLayout invalidateLayout];
+}
+- (CGSize)collectionView:(UICollectionView *)grid layout:(UICollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)path {
+    return CGSizeMake(floor((grid.bounds.size.width-34)/2), 112);
 }
 - (void)reloadPreferences {
     NSUserDefaults *d = CBDefaults();
     if (![d boolForKey:@"enabled"] || self.locked) [self hide];
-    self.trigger.hidden = self.visible || self.locked || ![d boolForKey:@"enabled"] || ![d boolForKey:@"trigger"];
-    self.panel.hidden = !self.visible;
     [self.view setNeedsLayout];
 }
 - (void)hide {
+    [self hideWithCompletion:nil];
+}
+- (void)hideWithCompletion:(dispatch_block_t)completion {
     self.visible = NO;
-    self.panel.hidden = YES;
-    self.view.backgroundColor = UIColor.clearColor;
-    self.items = @[];
-    [self.table reloadData];
-    self.trigger.hidden = self.locked || ![CBDefaults() boolForKey:@"enabled"] || ![CBDefaults() boolForKey:@"trigger"];
+    self.selecting = NO;
+    self.pasteApplication = nil;
+    NSUInteger token = ++self.presentation;
+    void (^finish)(void) = ^{
+        if (self.presentation != token) return;
+        self.overlay.hidden = YES;
+        self.items = @[];
+        [self.grid reloadData];
+        if (completion && !self.locked && [CBDefaults() boolForKey:@"enabled"]) completion();
+    };
+    if (self.locked || ![CBDefaults() boolForKey:@"enabled"]) { finish(); return; }
+    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        self.panel.transform = CGAffineTransformMakeTranslation(0, self.panel.bounds.size.height);
+        self.view.backgroundColor = UIColor.clearColor;
+    } completion:^(BOOL finished) { finish(); }];
 }
 - (void)show {
-    if (self.locked || ![CBDefaults() boolForKey:@"enabled"]) return;
+    if (self.visible || self.locked || ![CBDefaults() boolForKey:@"enabled"]) return;
+    ++self.presentation;
     self.visible = YES;
-    Class keyboardClass = NSClassFromString(@"UIKeyboardImpl");
-    id keyboard = [keyboardClass respondsToSelector:@selector(activeInstance)] ? [keyboardClass activeInstance] : nil;
-    self.pasteTarget = [keyboard respondsToSelector:@selector(inputDelegate)] ? [keyboard inputDelegate] : nil;
-    self.panel.hidden = NO;
-    self.trigger.hidden = YES;
-    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.12];
+    self.pasteApplication = CBFrontApplication();
+    self.overlay.hidden = NO;
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+    self.panel.transform = CGAffineTransformMakeTranslation(0, self.panel.bounds.size.height);
+    self.view.backgroundColor = UIColor.clearColor;
+    [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut animations:^{
+        self.panel.transform = CGAffineTransformIdentity;
+        self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.12];
+    } completion:nil];
     [self refresh];
 }
 - (void)refresh {
+    NSUInteger token = self.presentation;
     dispatch_async(self.queue, ^{
+        if (!self.store) self.store = [CBStore new];
         NSArray *items = [self.store history];
-        dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible) { self.items = items; [self.table reloadData]; } });
+        dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible && self.presentation == token) { self.items = items ?: @[]; [self.grid reloadData]; } });
     });
 }
 - (void)capture {
@@ -122,42 +213,50 @@ static CBController *controller;
     if (!image && pb.hasImages) image = UIImagePNGRepresentation(pb.image);
     if (!text.length && !image.length) return;
     dispatch_async(self.queue, ^{
+        if (!self.store) self.store = [CBStore new];
         if ([self.store saveText:text image:image]) dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible) [self refresh]; });
     });
 }
-- (NSInteger)tableView:(UITableView *)table numberOfRowsInSection:(NSInteger)section { return self.items.count; }
-- (UITableViewCell *)tableView:(UITableView *)table cellForRowAtIndexPath:(NSIndexPath *)path {
-    UITableViewCell *cell = [table dequeueReusableCellWithIdentifier:@"history"];
-    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"history"];
-    NSDictionary *item = self.items[path.row];
+- (NSInteger)collectionView:(UICollectionView *)grid numberOfItemsInSection:(NSInteger)section { return self.items.count; }
+- (UICollectionViewCell *)collectionView:(UICollectionView *)grid cellForItemAtIndexPath:(NSIndexPath *)path {
+    CBCell *cell = [grid dequeueReusableCellWithReuseIdentifier:@"history" forIndexPath:path];
+    NSDictionary *item = self.items[path.item];
+    BOOL hasImage = [item[@"image"] boolValue];
     cell.tag = [item[@"id"] integerValue];
-    cell.textLabel.text = [item[@"image"] boolValue] ? @"图片" : item[@"text"];
-    cell.textLabel.numberOfLines = 1;
-    cell.detailTextLabel.text = [item[@"image"] boolValue] ? @"点击复制或粘贴图片" : @"点击复制或粘贴文字";
-    cell.imageView.image = [UIImage systemImageNamed:[item[@"image"] boolValue] ? @"photo" : @"doc.text"];
-    cell.backgroundColor = UIColor.clearColor;
-    if ([item[@"image"] boolValue]) {
+    cell.text.text = hasImage ? nil : item[@"text"];
+    cell.text.hidden = hasImage;
+    cell.picture.hidden = !hasImage;
+    cell.picture.image = nil;
+    cell.accessibilityLabel = hasImage ? @"图片" : item[@"text"];
+    cell.isAccessibilityElement = YES;
+    cell.accessibilityTraits = UIAccessibilityTraitButton;
+    if (hasImage) {
         NSNumber *identifier = item[@"id"];
-        __weak UITableViewCell *weakCell = cell;
+        NSUInteger token = self.presentation;
+        __weak CBCell *weakCell = cell;
         dispatch_async(self.queue, ^{
             NSData *data = [self.store imageForID:identifier];
             CGImageSourceRef source = data ? CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL) : NULL;
-            CGImageRef image = source ? CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)@{(id)kCGImageSourceCreateThumbnailFromImageAlways:@YES, (id)kCGImageSourceCreateThumbnailWithTransform:@YES, (id)kCGImageSourceThumbnailMaxPixelSize:@120}) : NULL;
+            CGImageRef image = source ? CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)@{(id)kCGImageSourceCreateThumbnailFromImageAlways:@YES, (id)kCGImageSourceCreateThumbnailWithTransform:@YES, (id)kCGImageSourceThumbnailMaxPixelSize:@480}) : NULL;
             UIImage *thumbnail = image ? [UIImage imageWithCGImage:image] : nil;
             if (image) CGImageRelease(image);
             if (source) CFRelease(source);
-            dispatch_async(dispatch_get_main_queue(), ^{ if (thumbnail && weakCell.tag == identifier.integerValue) { weakCell.imageView.image = thumbnail; [weakCell setNeedsLayout]; } });
+            dispatch_async(dispatch_get_main_queue(), ^{ if (self.visible && self.presentation == token && weakCell.tag == identifier.integerValue) weakCell.picture.image = thumbnail; });
         });
     }
     return cell;
 }
-- (void)tableView:(UITableView *)table didSelectRowAtIndexPath:(NSIndexPath *)path {
-    NSDictionary *item = self.items[path.row];
-    [table deselectRowAtIndexPath:path animated:YES];
+- (void)collectionView:(UICollectionView *)grid didSelectItemAtIndexPath:(NSIndexPath *)path {
+    [grid deselectItemAtIndexPath:path animated:NO];
+    if (self.selecting || path.item >= self.items.count) return;
+    self.selecting = YES;
+    NSUInteger token = self.presentation;
+    NSDictionary *item = self.items[path.item];
     dispatch_async(self.queue, ^{
         NSData *image = [item[@"image"] boolValue] ? [self.store imageForID:item[@"id"]] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!self.visible || self.locked) return;
+            if (!self.visible || self.locked || self.presentation != token) return;
+            self.selecting = NO;
             if ([item[@"image"] boolValue] && !image.length) return;
             if (image) {
                 CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)image, NULL);
@@ -166,16 +265,47 @@ static CBController *controller;
                 if (source) CFRelease(source);
             } else [UIPasteboard generalPasteboard].string = item[@"text"];
             self.lastChange = UIPasteboard.generalPasteboard.changeCount;
+            NSInteger change = self.lastChange;
+            id application = self.pasteApplication;
             [self hide];
+            NSUInteger hiddenToken = self.presentation;
             AudioServicesPlaySystemSound(1519);
-            UIResponder *target = self.pasteTarget;
-            Class keyboardClass = NSClassFromString(@"UIKeyboardImpl");
-            id keyboard = [keyboardClass respondsToSelector:@selector(activeInstance)] ? [keyboardClass activeInstance] : nil;
-            id currentTarget = [keyboard respondsToSelector:@selector(inputDelegate)] ? [keyboard inputDelegate] : nil;
-            if (target && target == currentTarget && [target respondsToSelector:@selector(paste:)] &&
-                [target respondsToSelector:@selector(canPerformAction:withSender:)] && [target canPerformAction:@selector(paste:) withSender:nil]) {
-                [UIApplication.sharedApplication sendAction:@selector(paste:) to:target from:nil forEvent:nil];
-            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC/5), dispatch_get_main_queue(), ^{
+                if (self.locked || self.visible || self.presentation != hiddenToken ||
+                    ![CBDefaults() boolForKey:@"enabled"] || UIPasteboard.generalPasteboard.changeCount != change) return;
+                if (application && ![application isEqual:CBFrontApplication()]) return;
+                CBPaste(self.queue);
+            });
+        });
+    });
+}
+- (void)longPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan || !self.visible || self.selecting) return;
+    NSIndexPath *path = [self.grid indexPathForItemAtPoint:[gesture locationInView:self.grid]];
+    if (!path || path.item >= self.items.count) return;
+    NSDictionary *item = self.items[path.item];
+    BOOL imageItem = [item[@"image"] boolValue];
+    void (*openText)(NSString *) = (void (*)(NSString *))dlsym(RTLD_DEFAULT, "RSKAOpenTokens");
+    void (*openImage)(UIImage *, UIWindowScene *) = (void (*)(UIImage *, UIWindowScene *))dlsym(RTLD_DEFAULT, "RSShowFloatingImage");
+    if ((imageItem && !openImage) || (!imageItem && !openText)) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"需要 RegionShot" message:@"请先安装或更新支持分词和图片浮窗接口的 RegionShot。" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+    self.selecting = YES;
+    NSUInteger token = self.presentation;
+    dispatch_async(self.queue, ^{
+        UIImage *image = imageItem ? [UIImage imageWithData:[self.store imageForID:item[@"id"]]] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!self.visible || self.locked || self.presentation != token) return;
+            self.selecting = NO;
+            if (imageItem && !image) return;
+            AudioServicesPlaySystemSound(1519);
+            [self hideWithCompletion:^{
+                if (imageItem) openImage(image, self.overlay.windowScene);
+                else openText(item[@"text"]);
+            }];
         });
     });
 }
@@ -185,11 +315,68 @@ static CBController *controller;
 @implementation CBWindow
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hit = [super hitTest:point withEvent:event];
-    if (!controller.visible && hit != controller.trigger && ![hit isDescendantOfView:controller.trigger]) return nil;
-    return hit;
+    return controller.visible ? [super hitTest:point withEvent:event] : nil;
 }
 @end
+
+static BOOL CBHandleURL(id url) {
+    if (!controller || ![CBDefaults() boolForKey:@"enabled"] || !CBIsHistoryURL(url)) return NO;
+    notify_post(CBShow);
+    return YES;
+}
+// Same system URL entry points used by RegionShot; no UIApplication/app injection.
+%group URLShort
+%hook SpringBoard
+- (void)applicationOpenURL:(id)url {
+    if (!CBHandleURL(url)) {
+        %orig;
+    }
+}
+%end
+%end
+%group URLExternal
+%hook SpringBoard
+- (void)applicationOpenURL:(id)url withApplication:(id)application sender:(id)sender publicURLsOnly:(BOOL)publicOnly animating:(BOOL)animating needsConfirm:(BOOL)confirm options:(id)options windowContext:(id)context {
+    if (!CBHandleURL(url)) {
+        %orig;
+    }
+}
+%end
+%end
+%group URLPort
+%hook FBSSystemService
+- (void)openURL:(id)url application:(id)application options:(id)options clientPort:(unsigned int)port withResult:(void (^)(NSError *))result {
+    if (!CBHandleURL(url)) {
+        %orig;
+        return;
+    }
+    if (result) result(nil);
+}
+%end
+%end
+%group URLProcess
+%hook FBSSystemService
+- (void)openURL:(id)url application:(id)application options:(id)options clientProcess:(id)process withResult:(void (^)(NSError *))result {
+    if (!CBHandleURL(url)) {
+        %orig;
+        return;
+    }
+    if (result) result(nil);
+}
+%end
+%end
+static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
+    Method method = class_getInstanceMethod(cls, NSSelectorFromString(name));
+    if (!method || method_getNumberOfArguments(method) != types.count+2) return NO;
+    char type[128] = {0};
+    method_getReturnType(method, type, sizeof(type));
+    if (type[0] != 'v') return NO;
+    for (NSUInteger i = 0; i < types.count; i++) {
+        method_getArgumentType(method, (unsigned int)i+2, type, sizeof(type));
+        if (!type[0] || !strchr(types[i].UTF8String, type[0])) return NO;
+    }
+    return YES;
+}
 
 %group PasteTips
 %hook DRPasteAnnouncer
@@ -214,6 +401,19 @@ static CBController *controller;
         }
         if ([process isEqualToString:@"druid"]) return;
         if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
+            Class springBoard = NSClassFromString(@"SpringBoard"), service = NSClassFromString(@"FBSSystemService");
+            if (CBURLMethod(springBoard, @"applicationOpenURL:", @[@"@"])) {
+                %init(URLShort);
+            }
+            if (CBURLMethod(springBoard, @"applicationOpenURL:withApplication:sender:publicURLsOnly:animating:needsConfirm:options:windowContext:", @[@"@", @"@", @"@", @"Bc", @"Bc", @"Bc", @"@", @"@"])) {
+                %init(URLExternal);
+            }
+            if (CBURLMethod(service, @"openURL:application:options:clientPort:withResult:", @[@"@", @"@", @"@", @"I", @"@"])) {
+                %init(URLPort);
+            }
+            if (CBURLMethod(service, @"openURL:application:options:clientProcess:withResult:", @[@"@", @"@", @"@", @"@", @"@"])) {
+                %init(URLProcess);
+            }
             [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                 controller = [CBController new];
                 UIWindowScene *scene = nil;
@@ -222,7 +422,7 @@ static CBController *controller;
                 controller.overlay.frame = UIScreen.mainScreen.bounds;
                 controller.overlay.windowLevel = 10000000;
                 controller.overlay.rootViewController = controller;
-                controller.overlay.hidden = NO;
+                controller.overlay.hidden = YES;
                 [controller reloadPreferences];
                 int token;
                 notify_register_dispatch("com.apple.pasteboard.notify.changed", &token, dispatch_get_main_queue(), ^(int t) {

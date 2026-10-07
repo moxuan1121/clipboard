@@ -17,6 +17,8 @@ jobs:
         run: |
           python3 tests/check.py
           python3 tools/icon.py
+          clang -fobjc-arc -framework Foundation tests/url.m -o /tmp/clipboard-url-check
+          /tmp/clipboard-url-check
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "15.4"

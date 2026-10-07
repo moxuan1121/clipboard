@@ -4,6 +4,6 @@
 #define CBReload "com.moxuan1121.clipboard.reload"
 static inline NSUserDefaults *CBDefaults(void) {
     NSUserDefaults *d = [[NSUserDefaults alloc] initWithSuiteName:CBPrefs];
-    [d registerDefaults:@{@"enabled":@YES, @"height":@420, @"trigger":@YES, @"suppressTips":@YES}];
+    [d registerDefaults:@{@"enabled":@YES, @"height":@420, @"suppressTips":@YES}];
     return d;
 }

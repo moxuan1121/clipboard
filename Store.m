@@ -1,15 +1,36 @@
 #import "Store.h"
 #import <sqlite3.h>
+#import <roothide.h>
 @implementation CBStore {
     sqlite3 *_db;
 }
 - (instancetype)init {
     if ((self = [super init])) {
-        NSString *directory = @"/var/mobile/Library/Clipboard";
+        NSString *directory = jbroot(@"/var/mobile/Library/Clipboard");
         NSError *error;
         if (![[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:@{NSFileProtectionKey:NSFileProtectionCompleteUntilFirstUserAuthentication} error:&error]) return nil;
         if (sqlite3_open([[directory stringByAppendingPathComponent:@"history.sqlite"] fileSystemRepresentation], &_db) != SQLITE_OK) return nil;
         sqlite3_busy_timeout(_db, 1000);
+        // Migrate only into a database without a history table; never replace newer history.
+        sqlite3_stmt *schema = NULL;
+        BOOL hasHistory = NO;
+        if (sqlite3_prepare_v2(_db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history'", -1, &schema, NULL) == SQLITE_OK)
+            hasHistory = sqlite3_step(schema) == SQLITE_ROW;
+        sqlite3_finalize(schema);
+        NSString *oldPath = @"/var/mobile/Library/Clipboard/history.sqlite";
+        if (!hasHistory && ![oldPath isEqualToString:[directory stringByAppendingPathComponent:@"history.sqlite"]] &&
+            [NSFileManager.defaultManager fileExistsAtPath:oldPath]) {
+            sqlite3 *old = NULL;
+            if (sqlite3_open_v2(oldPath.fileSystemRepresentation, &old, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+                if (old) sqlite3_close(old);
+                return nil;
+            }
+            sqlite3_backup *backup = sqlite3_backup_init(_db, "main", old, "main");
+            int result = backup ? sqlite3_backup_step(backup, -1) : SQLITE_ERROR;
+            int finished = backup ? sqlite3_backup_finish(backup) : SQLITE_ERROR;
+            sqlite3_close(old);
+            if (result != SQLITE_DONE || finished != SQLITE_OK) return nil;
+        }
         if (sqlite3_exec(_db, "CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY, text TEXT, image BLOB);", NULL, NULL, NULL) != SQLITE_OK) return nil;
     }
     return self;
