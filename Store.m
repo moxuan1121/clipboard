@@ -52,6 +52,17 @@
     if (sqlite3_exec(_db, "COMMIT", NULL, NULL, NULL) != SQLITE_OK) { sqlite3_exec(_db, "ROLLBACK", NULL, NULL, NULL); return NO; }
     return YES;
 }
+- (BOOL)deleteItem:(NSNumber *)identifier {
+    if (!_db || ![identifier isKindOfClass:NSNumber.class] || identifier.longLongValue <= 0) return NO;
+    sqlite3_stmt *statement = NULL;
+    BOOL ok = sqlite3_prepare_v2(_db, "DELETE FROM history WHERE id=?", -1, &statement, NULL) == SQLITE_OK;
+    if (ok) {
+        sqlite3_bind_int64(statement, 1, identifier.longLongValue);
+        ok = sqlite3_step(statement) == SQLITE_DONE;
+    }
+    sqlite3_finalize(statement);
+    return ok;
+}
 - (NSArray *)history {
     NSMutableArray *items = [NSMutableArray array];
     sqlite3_stmt *s = NULL;

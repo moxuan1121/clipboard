@@ -58,6 +58,9 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @interface CBCell : UICollectionViewCell
 @property(nonatomic,strong) UILabel *text;
 @property(nonatomic,strong) UIImageView *picture;
+@property(nonatomic,strong) UIButton *deleteButton;
+@property(nonatomic,copy) void (^deleteAction)(NSNumber *);
+@property(nonatomic) BOOL deleteRevealed;
 @end
 @implementation CBCell
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -72,13 +75,47 @@ static void CBPaste(BOOL (^allowed)(void)) {
         _picture = [UIImageView new];
         _picture.contentMode = UIViewContentModeScaleAspectFit;
         [self.contentView addSubview:_picture];
+        _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _deleteButton.backgroundColor = UIColor.systemRedColor;
+        _deleteButton.tintColor = UIColor.whiteColor;
+        _deleteButton.layer.cornerRadius = 18;
+        [_deleteButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+        _deleteButton.accessibilityLabel = @"删除此条记录";
+        [_deleteButton addTarget:self action:@selector(deletePressed) forControlEvents:UIControlEventTouchUpInside];
+        _deleteButton.hidden = YES;
+        [self.contentView addSubview:_deleteButton];
+        for (NSNumber *direction in @[@(UISwipeGestureRecognizerDirectionLeft), @(UISwipeGestureRecognizerDirectionRight)]) {
+            UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swiped:)];
+            swipe.direction = direction.unsignedIntegerValue;
+            [self addGestureRecognizer:swipe];
+        }
     }
     return self;
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
-    self.text.frame = CGRectInset(self.contentView.bounds, 12, 10);
-    self.picture.frame = self.contentView.bounds;
+    CGRect body = self.contentView.bounds;
+    if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-48);
+    self.text.frame = CGRectInset(body, 12, 10);
+    self.picture.frame = CGRectInset(body, 3, 3);
+    self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
+}
+- (void)setDeleteRevealed:(BOOL)revealed {
+    _deleteRevealed = revealed;
+    self.deleteButton.hidden = !revealed;
+    self.isAccessibilityElement = !revealed;
+    [self setNeedsLayout];
+}
+- (void)swiped:(UISwipeGestureRecognizer *)gesture {
+    self.deleteRevealed = gesture.direction == UISwipeGestureRecognizerDirectionLeft;
+    [UIView animateWithDuration:0.18 animations:^{ [self layoutIfNeeded]; }];
+}
+- (void)deletePressed { if (self.deleteRevealed && self.deleteAction) self.deleteAction(@(self.tag)); }
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    self.deleteRevealed = NO;
+    self.deleteAction = nil;
+    self.picture.image = nil;
 }
 - (void)setHighlighted:(BOOL)highlighted {
     [super setHighlighted:highlighted];
@@ -106,6 +143,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 - (void)show;
 - (void)hide;
 - (void)hideWithCompletion:(dispatch_block_t)completion;
+- (void)deleteItem:(NSNumber *)identifier;
 @end
 static CBController *controller;
 
@@ -250,6 +288,9 @@ static CBController *controller;
     NSDictionary *item = self.items[path.item];
     BOOL hasImage = [item[@"image"] boolValue];
     cell.tag = [item[@"id"] integerValue];
+    cell.deleteRevealed = NO;
+    __weak CBController *weakSelf = self;
+    cell.deleteAction = ^(NSNumber *identifier) { [weakSelf deleteItem:identifier]; };
     cell.text.text = hasImage ? nil : item[@"text"];
     cell.text.hidden = hasImage;
     cell.picture.hidden = !hasImage;
@@ -275,6 +316,8 @@ static CBController *controller;
 }
 - (void)collectionView:(UICollectionView *)grid didSelectItemAtIndexPath:(NSIndexPath *)path {
     [grid deselectItemAtIndexPath:path animated:NO];
+    CBCell *cell = (CBCell *)[grid cellForItemAtIndexPath:path];
+    if (cell.deleteRevealed) { cell.deleteRevealed = NO; return; }
     if (self.selecting || path.item >= self.items.count) return;
     self.selecting = YES;
     NSUInteger token = self.presentation;
@@ -311,6 +354,7 @@ static CBController *controller;
     if (gesture.state != UIGestureRecognizerStateBegan || !self.visible || self.selecting) return;
     NSIndexPath *path = [self.grid indexPathForItemAtPoint:[gesture locationInView:self.grid]];
     if (!path || path.item >= self.items.count) return;
+    if (((CBCell *)[self.grid cellForItemAtIndexPath:path]).deleteRevealed) return;
     NSDictionary *item = self.items[path.item];
     BOOL imageItem = [item[@"image"] boolValue];
     void (*openText)(NSString *) = (void (*)(NSString *))dlsym(RTLD_DEFAULT, "RSKAOpenTokens");
@@ -338,6 +382,24 @@ static CBController *controller;
         });
     });
 }
+- (void)deleteItem:(NSNumber *)identifier {
+    if (!self.visible || self.locked || self.selecting) return;
+    self.selecting = YES;
+    NSUInteger token = self.presentation;
+    dispatch_async(self.queue, ^{
+        BOOL deleted = [self.store deleteItem:identifier];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!self.visible || self.presentation != token) return;
+            self.selecting = NO;
+            if (deleted) { AudioServicesPlaySystemSound(1519); [self refresh]; }
+            else {
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"删除失败" message:@"记录未被删除，请稍后重试。" preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+                [self presentViewController:alert animated:YES completion:nil];
+            }
+        });
+    });
+}
 @end
 
 // The root control only intercepts outside taps while the history is visible.
@@ -353,26 +415,19 @@ static BOOL CBHandleURL(id url) {
     notify_post(CBShow);
     return YES;
 }
-// Same system URL entry points used by RegionShot; no UIApplication/app injection.
-%group URLCore
-%hook SpringBoard
-- (void)_openURLCore:(id)url display:(id)display animating:(BOOL)animating activationSettings:(id)settings origin:(id)origin withResult:(id)result {
-    if (!CBHandleURL(url)) {
-        %orig;
-        return;
-    }
-    CBCompleteURL(result);
+// RegionShot's URL entry points; this group is installed only in SpringBoard.
+%group URLApplication
+%hook UIApplication
+- (BOOL)openURL:(NSURL *)url {
+    if (CBHandleURL(url)) return YES;
+    return %orig;
 }
-%end
-%end
-%group URLRequest
-%hook SpringBoard
-- (void)applicationOpenURL:(id)url withApplication:(id)application animating:(BOOL)animating activationSettings:(id)settings origin:(id)origin notifyLSOnFailure:(BOOL)notifyFailure withResult:(id)result {
+- (void)openURL:(NSURL *)url options:(NSDictionary *)options completionHandler:(void (^)(BOOL))completion {
     if (!CBHandleURL(url)) {
         %orig;
         return;
     }
-    CBCompleteURL(result);
+    if (completion) completion(YES);
 }
 %end
 %end
@@ -452,13 +507,10 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
         }
         if ([process isEqualToString:@"druid"]) return;
         if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+            // Match RegionShot: install after class loading, only inside SpringBoard.
+            %init(URLApplication);
             Class springBoard = NSClassFromString(@"SpringBoard"), service = NSClassFromString(@"FBSSystemService");
-            if (CBURLMethod(springBoard, @"_openURLCore:display:animating:activationSettings:origin:withResult:", @[@"@", @"@", @"Bc", @"@", @"@", @"@"])) {
-                %init(URLCore);
-            }
-            if (CBURLMethod(springBoard, @"applicationOpenURL:withApplication:animating:activationSettings:origin:notifyLSOnFailure:withResult:", @[@"@", @"@", @"Bc", @"@", @"@", @"Bc", @"@"])) {
-                %init(URLRequest);
-            }
             if (CBURLMethod(springBoard, @"applicationOpenURL:", @[@"@"])) {
                 %init(URLShort);
             }
@@ -471,7 +523,7 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
             if (CBURLMethod(service, @"openURL:application:options:clientProcess:withResult:", @[@"@", @"@", @"@", @"@", @"@"])) {
                 %init(URLProcess);
             }
-            [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+            // Register the Darwin entry directly, not behind a one-shot launch notification.
                 controller = [CBController new];
                 UIWindowScene *scene = nil;
                 for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) if ([candidate isKindOfClass:UIWindowScene.class]) { scene = (UIWindowScene *)candidate; break; }
@@ -489,7 +541,7 @@ static BOOL CBURLMethod(Class cls, NSString *name, NSArray<NSString *> *types) {
                 notify_register_dispatch(CBReload, &token, dispatch_get_main_queue(), ^(int t) { [controller reloadPreferences]; });
                 notify_register_dispatch("com.apple.springboard.lockstate", &token, dispatch_get_main_queue(), ^(int t) { uint64_t state = 0; notify_get_state(t, &state); controller.locked = state != 0; [controller reloadPreferences]; });
                 uint64_t state = 0; notify_get_state(token, &state); controller.locked = state != 0; [controller reloadPreferences];
-            }];
+            });
         }
     }
 }

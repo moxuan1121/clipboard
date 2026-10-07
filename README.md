@@ -6,7 +6,8 @@
 通过 `prefs://root=clipboard_history` 或 Darwin 通知 `com.moxuan1121.clipboard.show` 呼出；设置页也可打开。已删除侧边按钮，点面板外侧收起。
 面板底部上滑弹出，顶部仅显示「剪切板」。历史以双列圆角卡片显示，每块高 56pt（原 112pt 的一半）：文字仅显示内容，图片仅显示缩略图。
 背景沿用 Kayoko 的系统薄磨砂材质，随深浅模式切换，并叠加白色（浅色 alpha 0.34、深色 alpha 0.06）。
-URL 呼出覆盖 SpringBoard 的 `_openURLCore:display:animating:activationSettings:origin:withResult:` 路径，按运行时方法签名安装 Hook；私有完成回调按真实 Block 签名调用，避免猜测参数造成崩溃。
+URL 呼出沿用 RegionShot 的历史/AI 窗口链路：仅在 SpringBoard 内拦截 UIApplication 的两个 openURL 入口及系统 URL 服务入口，转发 Darwin 通知。主线程延后安装入口并直接注册通知，不依赖一次性的启动完成通知。不注入 UIKit 或普通应用，也不再解析私有 Block 内存布局。
+卡片内左滑显示红色圆形垃圾桶按钮，点击只删除当前历史记录；右滑或点击卡片收起删除按钮，不触发粘贴。图片在卡片内四边各留 3pt，保持原比例。
 点击条目写入系统剪贴板，收起面板后通过系统 Cmd+V 向当前输入框粘贴。没有输入框时保留在剪贴板；锁屏、关闭插件、重新打开面板、切换前台应用或剪贴板再次变化时取消延迟粘贴。
 长按文字通过 `RSKAOpenTokens` 打开 RegionShot 分词；长按图片通过 `RSShowFloatingImage` 打开 RegionShot 图片浮窗。仅解析已加载的可选接口，不强制加载或注入 RegionShot；未安装或版本不支持时显示提示。
 
