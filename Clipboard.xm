@@ -92,12 +92,12 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @implementation CBCell
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        self.contentView.layer.cornerRadius = 16;
         self.contentView.clipsToBounds = YES;
         _text = [UILabel new];
-        _text.font = [UIFont systemFontOfSize:15];
+        _text.font = [UIFont systemFontOfSize:13];
         _text.textColor = UIColor.labelColor;
-        _text.numberOfLines = 0;
+        _text.numberOfLines = 2;
+        _text.lineBreakMode = NSLineBreakByTruncatingTail;
         [self.contentView addSubview:_text];
         _picture = [UIImageView new];
         _picture.contentMode = UIViewContentModeScaleAspectFit;
@@ -146,12 +146,13 @@ static void CBPaste(BOOL (^allowed)(void)) {
     if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-48);
     CGFloat side = MIN(37.5, MAX(0, MIN(body.size.height, body.size.width)));
     CGFloat gap = MAX(0, (body.size.height-side)/2);
+    self.contentView.layer.cornerRadius = self.sourceIcon.layer.cornerRadius+gap;
     self.sourceIcon.frame = CGRectMake(gap, gap, side, side);
     if (self.sourceIcon.image) { body.origin.x += side+gap*2; body.size.width = MAX(0, body.size.width-side-gap*2); }
-    self.text.frame = CGRectInset(body, 12, 8);
+    self.text.frame = CGRectInset(body, 12, 4);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
-    self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:16].CGPath;
+    self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:self.contentView.layer.cornerRadius].CGPath;
 }
 - (void)setDeleteRevealed:(BOOL)revealed {
     _deleteRevealed = revealed;

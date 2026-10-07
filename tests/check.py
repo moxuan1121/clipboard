@@ -52,7 +52,12 @@ assert 'colorWithRed:0.88 green:0.905 blue:0.94 alpha:1' in ui and 'shadowOpacit
 assert 'self.layer.shadowPath =' in ui
 assert 'self.grid.alwaysBounceVertical = YES' in ui and 'CBFilterHistory(self.allItems, self.searchBar.text)' in ui
 assert 'self.sourceIcon.frame = CGRectMake(gap, gap, side, side)' in ui and 'MIN(37.5,' in ui
-assert 'CGRectInset(body, 12, 8)' in ui and '(body.size.height-side)/2' in ui
+assert 'CGRectInset(body, 12, 4)' in ui and '(body.size.height-side)/2' in ui
+assert '_text.font = [UIFont systemFontOfSize:13]' in ui and '_text.numberOfLines = 2' in ui
+assert '_text.lineBreakMode = NSLineBreakByTruncatingTail' in ui
+assert 'self.contentView.layer.cornerRadius = self.sourceIcon.layer.cornerRadius+gap' in ui
+assert 'cornerRadius:self.contentView.layer.cornerRadius' in ui
+assert abs(8.25+(44.8-37.5)/2-11.9) < 1e-9
 assert abs(56*0.8-44.8) < 1e-9 and 50*0.75 == 37.5
 assert (44.8-37.5)/2 > 3  # Equal top, bottom and left margins.
 assert '[self.listContainer addSubview:self.searchBar]' in ui and '[self.grid addSubview:self.searchBar]' not in ui
