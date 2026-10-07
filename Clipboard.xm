@@ -169,9 +169,13 @@ static CBController *controller;
             [self hide];
             AudioServicesPlaySystemSound(1519);
             UIResponder *target = self.pasteTarget;
-            if ([target respondsToSelector:@selector(paste:)] && [target canPerformAction:@selector(paste:) withSender:nil]) {
+            Class keyboardClass = NSClassFromString(@"UIKeyboardImpl");
+            id keyboard = [keyboardClass respondsToSelector:@selector(activeInstance)] ? [keyboardClass activeInstance] : nil;
+            id currentTarget = [keyboard respondsToSelector:@selector(inputDelegate)] ? [keyboard inputDelegate] : nil;
+            if (target && target == currentTarget && [target respondsToSelector:@selector(paste:)] &&
+                [target respondsToSelector:@selector(canPerformAction:withSender:)] && [target canPerformAction:@selector(paste:) withSender:nil]) {
                 [UIApplication.sharedApplication sendAction:@selector(paste:) to:target from:nil forEvent:nil];
-            } else [UIApplication.sharedApplication sendAction:@selector(paste:) to:nil from:nil forEvent:nil];
+            }
         });
     });
 }
