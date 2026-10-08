@@ -643,8 +643,8 @@ static CBController *controller;
         }];
     };
     __weak UIViewController *weakEditor = editor;
-    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithTitle:@"取消" image:nil identifier:nil handler:^(UIAction *action) { close(); }] menu:nil];
-    editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithTitle:@"保存" image:nil identifier:nil handler:^(UIAction *action) {
+    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }] menu:nil];
+    editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave primaryAction:[UIAction actionWithHandler:^(UIAction *action) {
         CBController *host = weakSelf;
         if (!host || !host.visible || host.locked || host.presentation != token) return;
         NSString *value = [text.text copy];
