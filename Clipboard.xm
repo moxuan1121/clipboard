@@ -256,7 +256,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 - (void)capture;
 - (void)show;
 - (void)hide;
-- (void)hideWithCompletion:(dispatch_block_t)completion;
+- (void)hideAnimated:(BOOL)animated;
 - (void)deleteItem:(NSNumber *)identifier;
 - (void)editItem:(NSNumber *)identifier;
 - (void)closeTextEditor;
@@ -417,9 +417,9 @@ static CBController *controller;
     [self.view setNeedsLayout];
 }
 - (void)hide {
-    [self hideWithCompletion:nil];
+    [self hideAnimated:YES];
 }
-- (void)hideWithCompletion:(dispatch_block_t)completion {
+- (void)hideAnimated:(BOOL)animated {
     [self closeTextEditor];
     [self endSearchEditing];
     [self revealDeleteForCell:nil visible:NO];
@@ -433,10 +433,14 @@ static CBController *controller;
         self.items = @[];
         self.allItems = @[];
         [self.grid reloadData];
-        if (completion && !self.locked && [CBDefaults() boolForKey:@"enabled"]) completion();
     };
-    if (self.locked || ![CBDefaults() boolForKey:@"enabled"]) { finish(); return; }
-    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+    if (!animated || self.locked || ![CBDefaults() boolForKey:@"enabled"]) {
+        [self.panel.layer removeAllAnimations];
+        [self.view.layer removeAllAnimations];
+        finish();
+        return;
+    }
+    [UIView animateWithDuration:0.12 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseIn animations:^{
         self.panel.transform = CGAffineTransformMakeTranslation(0, self.panel.bounds.size.height);
         self.view.backgroundColor = UIColor.clearColor;
     } completion:^(BOOL finished) { finish(); }];
@@ -455,7 +459,7 @@ static CBController *controller;
     [self.grid setContentOffset:CGPointMake(0, 56) animated:NO];
     self.panel.transform = CGAffineTransformMakeTranslation(0, self.panel.bounds.size.height);
     self.view.backgroundColor = UIColor.clearColor;
-    [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut animations:^{
+    [UIView animateWithDuration:0.16 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut animations:^{
         self.panel.transform = CGAffineTransformIdentity;
         self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.12];
     } completion:nil];
@@ -600,10 +604,9 @@ static CBController *controller;
             self.selecting = NO;
             if (imageItem && !image) return;
             AudioServicesPlaySystemSound(1519);
-            [self hideWithCompletion:^{
-                if (imageItem) openImage(image, self.overlay.windowScene);
-                else openText(item[@"text"]);
-            }];
+            [self hideAnimated:NO];
+            if (imageItem) openImage(image, self.overlay.windowScene);
+            else openText(item[@"text"]);
         });
     });
 }
@@ -730,7 +733,8 @@ static CBController *controller;
 
 static BOOL CBHandleURL(id url) {
     if (!controller || ![CBDefaults() boolForKey:@"enabled"] || !CBIsHistoryURL(url)) return NO;
-    notify_post(CBShow);
+    if (NSThread.isMainThread) [controller show];
+    else dispatch_async(dispatch_get_main_queue(), ^{ [controller show]; });
     return YES;
 }
 // RegionShot's URL entry points; this group is installed only in SpringBoard.

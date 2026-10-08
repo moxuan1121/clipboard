@@ -39,6 +39,16 @@ assert '点击复制或粘贴' not in ui and 'title.text = @"剪切板"' in ui
 assert 'RSKAOpenTokens' in ui and 'RSShowFloatingImage' in ui
 assert 'IOHIDEventSystemClientDispatchEvent' in ui and 'sendAction:' not in ui
 assert 'self.presentation != token' in ui and 'self.presentation != hiddenToken' in ui
+assert 'animateWithDuration:0.16 delay:0' in ui and 'animateWithDuration:0.12 delay:0' in ui
+assert 'hideWithCompletion' not in ui
+long_press = ui.split('- (void)longPress:')[1].split('- (void)closeTextEditor')[0]
+assert long_press.index('[self hideAnimated:NO]') < long_press.index('if (imageItem) openImage')
+assert 'else openText(item[@"text"])' in long_press
+assert 'self.presentation != token' in long_press and 'imageItem && !image' in long_press
+route = ui.split('static BOOL CBHandleURL(id url) {')[1].split('// RegionShot')[0]
+assert 'if (NSThread.isMainThread) [controller show]' in route and 'notify_post' not in route
+assert 'else dispatch_async(dispatch_get_main_queue()' in route
+assert 'notify_register_dispatch(CBShow' in ui  # External Darwin entry stays available.
 assert 'size.width-34)/2), 44.8)' in ui
 assert 'UIBlurEffectStyleSystemThinMaterialDark' in ui and '0.06 : 0.34' in ui
 assert '%init(URLApplication)' in ui and 'UIApplicationDidFinishLaunchingNotification' not in ui

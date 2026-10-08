@@ -5,6 +5,7 @@
 包标识符：`com.moxuan1121.clipboard`。保存文字和图片，最多 500 条，无收藏功能。
 通过 `prefs://root=clipboard_history` 或 Darwin 通知 `com.moxuan1121.clipboard.show` 呼出；设置页也可打开。已删除侧边按钮，点面板外侧收起。
 面板底部上滑弹出，顶部仅显示「剪切板」。历史以双列圆角卡片显示，每块高 44.8pt（0.1.5 的 56pt × 0.8）：文字采用 13pt 字体，最多两行，超出时尾部省略，上下各留 4pt；图片仅显示缩略图。卡片圆角按图标圆角加外侧间距计算为 11.9pt，阴影路径同步匹配，使左侧轮廓与图标贴合。
+面板唤起动画 0.16 秒，关闭动画 0.12 秒，无人为起始延迟。SpringBoard 收到有效 URL 后直接在主线程唤起，不再经 Darwin 通知绕行；外部 Darwin 通知入口保留。长按分词或图片浮窗在内容准备成功后立即收起面板再调用 RegionShot，不等待关闭动画；接口缺失或图片读取失败不会提前关闭。自动粘贴的原有延迟与保护保持不变。
 背景沿用 Kayoko 的系统薄磨砂材质，随深浅模式切换，并叠加白色（浅色 alpha 0.34、深色 alpha 0.06）。
 URL 呼出沿用 RegionShot 的历史/AI 窗口链路：仅在 SpringBoard 内拦截 UIApplication 的两个 openURL 入口及系统 URL 服务入口，转发 Darwin 通知。主线程延后安装入口并直接注册通知，不依赖一次性的启动完成通知。不注入 UIKit 或普通应用，也不再解析私有 Block 内存布局。
 卡片内左滑显示红色圆形垃圾桶按钮，点击只删除当前历史记录；右滑或点击卡片收起删除按钮，不触发粘贴。图片在卡片内四边各留 3pt，保持原比例。
@@ -32,7 +33,7 @@ URL 呼出沿用 RegionShot 的历史/AI 窗口链路：仅在 SpringBoard 内�
 
 构建：RootHide Theos + iPhoneOS16.5 SDK，执行 `python3 tools/icon.py` 后 `make package FINALPACKAGE=1`。
 GitHub Actions 自动构建并检查包路径、包名、架构和维护脚本。
-最终包用标准 `dpkg-deb --root-owner-group -Zxz` 规范文件归属；CI 用真实 dpkg 在隔离根目录中验证从 0.1.9、0.1.10、0.1.11 升级和卸载，分别覆盖独立目录与兼容符号链接，检查安装清单包含完整目录层级，并验证其他插件文件保留。
+最终包用标准 `dpkg-deb --root-owner-group -Zxz` 规范文件归属；CI 用真实 dpkg 在隔离根目录中验证从 0.1.9、0.1.10、0.1.11、0.1.12 升级和卸载，分别覆盖独立目录与兼容符号链接，检查安装清单包含完整目录层级，并验证其他插件文件保留。
 执行 `python3 tests/check.py` 检查 500 条限制、文字/图片存储、SQLite backup 原语、注入过滤与 UI 关键约束。macOS CI 还直接编译执行 `tests/url.m`，检查真实 URL 解析实现。
 
 行为参考 Kayoko，源代码为独立实现，不包含 Kayoko 的收藏、内置分词或第三方分词依赖。
