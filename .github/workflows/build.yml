@@ -21,7 +21,7 @@ jobs:
       - name: Check upgrade and uninstall in disposable roots
         run: |
           curl -fL https://github.com/moxuan1121/clipboard/releases/download/v0.1.9/com.moxuan1121.clipboard_0.1.9_iphoneos-arm64e.deb -o /tmp/clipboard-old.deb
-          sudo python3 tests/upgrade.py /tmp/clipboard-old.deb packages/com.moxuan1121.clipboard_0.1.10_iphoneos-arm64e.deb
+          sudo python3 tests/upgrade.py /tmp/clipboard-old.deb packages/com.moxuan1121.clipboard_0.1.11_iphoneos-arm64e.deb
   build:
     runs-on: macos-14
     steps:

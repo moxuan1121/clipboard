@@ -86,7 +86,21 @@ settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings
 assert '_text.textColor = UIColor.labelColor;' in ui
 assert 'CGRectOffset(self.deleteButton.frame, -42, 0)' in ui and 'cell.canEdit = !hasImage' in ui
-assert 'UITextView *text' in ui and 'keyboardLayoutGuide.topAnchor' in ui
+assert 'UITextView *text' in ui and 'editor.view.safeAreaLayoutGuide.bottomAnchor' in ui
+assert 'UIModalPresentationFullScreen' not in ui
+assert '[self.panel addSubview:self.textEditor.view]' in ui
+assert '[self.textEditor didMoveToParentViewController:self]' in ui
+assert '[self.textEditor removeFromParentViewController]' in ui
+assert 'self.textEditor.view.frame = self.panel.bounds' in ui
+assert '- (void)hideEditorKeyboard { [self.textEditor.view endEditing:YES]; }' in ui and '收起键盘' in ui
+# The same panel geometry is used while searching and while editing text.
+for screen, keyboard_height, requested in [(844, 336, 420), (390, 210, 420), (844, 0, 420)]:
+    bottom = screen-keyboard_height
+    height = min(max(requested, 180), bottom)
+    assert bottom-height >= 0 and bottom <= screen
+    assert bottom+keyboard_height == screen
+    if not keyboard_height:
+        assert bottom == screen and height == requested
 assert 'updateText:value forID:identifier' in ui
 edit_sql = re.search(r'"(UPDATE history SET text=\? WHERE id=\? AND image IS NULL)"', source).group(1)
 before_edit = db.execute('SELECT id,text,image,source FROM history ORDER BY id').fetchall()

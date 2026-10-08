@@ -259,6 +259,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 - (void)hideWithCompletion:(dispatch_block_t)completion;
 - (void)deleteItem:(NSNumber *)identifier;
 - (void)editItem:(NSNumber *)identifier;
+- (void)closeTextEditor;
 - (void)revealDeleteForCell:(CBCell *)cell visible:(BOOL)visible;
 @end
 static CBController *controller;
@@ -349,6 +350,7 @@ static CBController *controller;
     self.panel.center = CGPointMake(CGRectGetMidX(b), bottom-height/2);
     self.material.frame = self.panel.bounds;
     self.materialTint.frame = self.material.bounds;
+    self.textEditor.view.frame = self.panel.bounds;
     self.listContainer.frame = CGRectMake(0, 50, width, MAX(height-50, 0));
     self.grid.frame = self.listContainer.bounds;
     [self scrollViewDidScroll:self.grid];
@@ -418,7 +420,7 @@ static CBController *controller;
     [self hideWithCompletion:nil];
 }
 - (void)hideWithCompletion:(dispatch_block_t)completion {
-    if (self.textEditor) { [self.textEditor dismissViewControllerAnimated:NO completion:nil]; self.textEditor = nil; }
+    [self closeTextEditor];
     [self endSearchEditing];
     [self revealDeleteForCell:nil visible:NO];
     self.visible = NO;
@@ -605,6 +607,15 @@ static CBController *controller;
         });
     });
 }
+- (void)closeTextEditor {
+    if (!self.textEditor) return;
+    [self.textEditor.view endEditing:YES];
+    [self.textEditor willMoveToParentViewController:nil];
+    [self.textEditor.view removeFromSuperview];
+    [self.textEditor removeFromParentViewController];
+    self.textEditor = nil;
+}
+- (void)hideEditorKeyboard { [self.textEditor.view endEditing:YES]; }
 - (void)editItem:(NSNumber *)identifier {
     if (!self.visible || self.locked || self.selecting || self.presentedViewController) return;
     NSDictionary *item = nil;
@@ -627,20 +638,15 @@ static CBController *controller;
         [text.topAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.topAnchor constant:8],
         [text.leadingAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.leadingAnchor constant:12],
         [text.trailingAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
-        [text.bottomAnchor constraintEqualToAnchor:editor.view.keyboardLayoutGuide.topAnchor constant:-8]]];
+        [text.bottomAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.bottomAnchor constant:-8]]];
     self.textEditor = [[UINavigationController alloc] initWithRootViewController:editor];
-    self.textEditor.modalInPresentation = YES;
-    self.textEditor.modalPresentationStyle = UIModalPresentationFullScreen;
     __weak CBController *weakSelf = self;
     dispatch_block_t close = ^{
         CBController *host = weakSelf;
         if (!host || host.presentation != token) return;
-        [host.textEditor dismissViewControllerAnimated:YES completion:^{
-            if (host.presentation != token) return;
-            host.textEditor = nil;
-            host.selecting = NO;
-            [host endSearchEditing];
-        }];
+        [host closeTextEditor];
+        host.selecting = NO;
+        [host endSearchEditing];
     };
     __weak UIViewController *weakEditor = editor;
     editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }]];
@@ -673,7 +679,14 @@ static CBController *controller;
             });
         });
     }]];
-    [self presentViewController:self.textEditor animated:YES completion:^{ if (self.presentation == token && self.visible) [text becomeFirstResponder]; }];
+    UIBarButtonItem *hideKeyboard = [[UIBarButtonItem alloc] initWithTitle:@"收起键盘" style:UIBarButtonItemStylePlain target:self action:@selector(hideEditorKeyboard)];
+    editor.navigationItem.rightBarButtonItems = @[editor.navigationItem.rightBarButtonItem, hideKeyboard];
+    [self addChildViewController:self.textEditor];
+    self.textEditor.view.frame = self.panel.bounds;
+    self.textEditor.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.panel addSubview:self.textEditor.view];
+    [self.textEditor didMoveToParentViewController:self];
+    [text becomeFirstResponder];
 }
 - (void)deleteItem:(NSNumber *)identifier {
     if (!self.visible || self.locked || self.selecting) return;
