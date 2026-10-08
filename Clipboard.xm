@@ -643,12 +643,17 @@ static CBController *controller;
         }];
     };
     __weak UIViewController *weakEditor = editor;
-    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" image:nil primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }] menu:nil];
-    editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" image:nil primaryAction:[UIAction actionWithHandler:^(UIAction *action) {
+    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithTitle:@"取消" image:nil identifier:nil handler:^(UIAction *action) { close(); }] menu:nil];
+    editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithPrimaryAction:[UIAction actionWithTitle:@"保存" image:nil identifier:nil handler:^(UIAction *action) {
         CBController *host = weakSelf;
         if (!host || !host.visible || host.locked || host.presentation != token) return;
         NSString *value = [text.text copy];
-        if (!value.length) return;
+        if (!value.length) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"文字不能为空" message:@"如需移除此条记录，请使用删除按钮。" preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+            [weakEditor presentViewController:alert animated:YES completion:nil];
+            return;
+        }
         weakEditor.navigationItem.rightBarButtonItem.enabled = NO;
         weakEditor.navigationItem.leftBarButtonItem.enabled = NO;
         text.editable = NO;
