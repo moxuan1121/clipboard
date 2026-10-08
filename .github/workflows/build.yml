@@ -9,6 +9,19 @@ env:
   THEOS: ${{ github.workspace }}/theos-roothide
   THEOS_IGNORE_PARALLEL_BUILDING_NOTICE: "yes"
 jobs:
+  lifecycle:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: clipboard-roothide
+          path: packages
+      - name: Check upgrade and uninstall in disposable roots
+        run: |
+          curl -fL https://github.com/moxuan1121/clipboard/releases/download/v0.1.9/com.moxuan1121.clipboard_0.1.9_iphoneos-arm64e.deb -o /tmp/clipboard-old.deb
+          sudo python3 tests/upgrade.py /tmp/clipboard-old.deb packages/com.moxuan1121.clipboard_0.1.10_iphoneos-arm64e.deb
   build:
     runs-on: macos-14
     steps:
@@ -42,9 +55,10 @@ jobs:
           test "$(dpkg-deb -f "$package" Architecture)" = iphoneos-arm64e
           work=$(mktemp -d)
           dpkg-deb -R "$package" "$work/root"
-          test -f "$work/root/usr/lib/TweakInject/Clipboard.dylib"
+          test -f "$work/root/Library/MobileSubstrate/DynamicLibraries/Clipboard.dylib"
+          test -f "$work/root/Library/MobileSubstrate/DynamicLibraries/Clipboard.plist"
           test ! -e "$work/root/var/jb"
-          test ! -e "$work/root/Library/MobileSubstrate"
+          test ! -e "$work/root/usr/lib/TweakInject/Clipboard.dylib"
           test -f "$work/root/Library/PreferenceBundles/ClipboardPreferences.bundle/ClipboardPreferences"
           test -f "$work/root/Library/PreferenceLoader/Preferences/Clipboard.plist"
           for name in preinst postinst prerm postrm; do test ! -f "$work/root/DEBIAN/$name"; done

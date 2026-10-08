@@ -25,6 +25,7 @@ assert db.execute('SELECT image,source FROM history WHERE id=501').fetchone() ==
 filter_text = (root / 'Clipboard.plist').read_text()
 assert 'com.apple.UIKit' not in filter_text and 'com.apple.springboard' in filter_text
 assert '/var/jb' not in (root / 'Makefile').read_text()
+assert 'Clipboard_INSTALL_PATH' not in (root / 'Makefile').read_text()
 assert 'jbroot(@"/var/mobile/Library/Clipboard")' in source
 assert 'sqlite3_backup_init' in source and 'SQLITE_OPEN_READONLY' in source
 db.commit()
@@ -84,6 +85,21 @@ assert 'if (self.sourceIcon.image)' not in ui  # Placeholder keeps the same cont
 settings = (root / 'Preferences/Resources/Root.plist').read_text(encoding='utf-8')
 assert '仅支持' not in settings and 'prefs://' not in settings and '呼出方式' not in settings
 assert '_text.textColor = UIColor.labelColor;' in ui
+assert 'CGRectOffset(self.deleteButton.frame, -42, 0)' in ui and 'cell.canEdit = !hasImage' in ui
+assert 'UITextView *text' in ui and 'keyboardLayoutGuide.topAnchor' in ui
+assert 'updateText:value forID:identifier' in ui
+edit_sql = re.search(r'"(UPDATE history SET text=\? WHERE id=\? AND image IS NULL)"', source).group(1)
+before_edit = db.execute('SELECT id,text,image,source FROM history ORDER BY id').fetchall()
+text_id = next(row[0] for row in before_edit if row[2] is None)
+image_id = next(row[0] for row in before_edit if row[2] is not None)
+value = "第一行\n第二行 'quoted' 😀"
+db.execute(edit_sql, (value, text_id))
+assert db.execute('SELECT text FROM history WHERE id=?', (text_id,)).fetchone() == (value,)
+assert db.execute('SELECT id,image,source FROM history WHERE id=?', (text_id,)).fetchone() == next((row[0],row[2],row[3]) for row in before_edit if row[0] == text_id)
+image_before = db.execute('SELECT * FROM history WHERE id=?', (image_id,)).fetchone()
+assert db.execute(edit_sql, ('not allowed', image_id)).rowcount == 0
+assert db.execute('SELECT * FROM history WHERE id=?', (image_id,)).fetchone() == image_before
+assert db.execute(edit_sql, ('missing', 99999)).rowcount == 0
 delete = next(s for s in sql if s == 'DELETE FROM history WHERE id=?')
 before = list(db.execute('SELECT id,text,image FROM history ORDER BY id'))
 db.execute(delete, (500,))

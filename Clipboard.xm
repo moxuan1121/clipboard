@@ -115,6 +115,9 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @property(nonatomic,strong) UIImageView *picture;
 @property(nonatomic,strong) UIImageView *sourceIcon;
 @property(nonatomic,strong) UIButton *deleteButton;
+@property(nonatomic,strong) UIButton *editButton;
+@property(nonatomic,copy) void (^editAction)(NSNumber *);
+@property(nonatomic) BOOL canEdit;
 @property(nonatomic,copy) void (^deleteAction)(NSNumber *);
 @property(nonatomic,copy) void (^revealAction)(CBCell *, BOOL);
 @property(nonatomic) BOOL deleteRevealed;
@@ -146,6 +149,15 @@ static void CBPaste(BOOL (^allowed)(void)) {
         [_deleteButton addTarget:self action:@selector(deletePressed) forControlEvents:UIControlEventTouchUpInside];
         _deleteButton.hidden = YES;
         [self.contentView addSubview:_deleteButton];
+        _editButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _editButton.backgroundColor = UIColor.systemBlueColor;
+        _editButton.tintColor = UIColor.whiteColor;
+        _editButton.layer.cornerRadius = 18;
+        [_editButton setImage:[UIImage systemImageNamed:@"pencil"] forState:UIControlStateNormal];
+        _editButton.accessibilityLabel = @"编辑文字";
+        [_editButton addTarget:self action:@selector(editPressed) forControlEvents:UIControlEventTouchUpInside];
+        _editButton.hidden = YES;
+        [self.contentView addSubview:_editButton];
         for (NSNumber *direction in @[@(UISwipeGestureRecognizerDirectionLeft), @(UISwipeGestureRecognizerDirectionRight)]) {
             UISwipeGestureRecognizer *swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swiped:)];
             swipe.direction = direction.unsignedIntegerValue;
@@ -173,7 +185,7 @@ static void CBPaste(BOOL (^allowed)(void)) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGRect body = self.contentView.bounds;
-    if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-48);
+    if (self.deleteRevealed) body.size.width = MAX(0, body.size.width-(self.canEdit ? 90 : 48));
     CGFloat side = MIN(37.5, MAX(0, MIN(body.size.height, body.size.width)));
     CGFloat gap = MAX(0, (body.size.height-side)/2);
     self.contentView.layer.cornerRadius = self.sourceIcon.layer.cornerRadius+gap;
@@ -183,11 +195,13 @@ static void CBPaste(BOOL (^allowed)(void)) {
     self.text.frame = CGRectInset(body, 12, 4);
     self.picture.frame = CGRectInset(body, 3, 3);
     self.deleteButton.frame = CGRectMake(self.contentView.bounds.size.width-42, (self.contentView.bounds.size.height-36)/2, 36, 36);
+    self.editButton.frame = CGRectOffset(self.deleteButton.frame, -42, 0);
     self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:self.contentView.layer.cornerRadius].CGPath;
 }
 - (void)setDeleteRevealed:(BOOL)revealed {
     _deleteRevealed = revealed;
     self.deleteButton.hidden = !revealed;
+    self.editButton.hidden = !revealed || !self.canEdit;
     self.isAccessibilityElement = !revealed;
     [self setNeedsLayout];
 }
@@ -195,10 +209,13 @@ static void CBPaste(BOOL (^allowed)(void)) {
     if (self.revealAction) self.revealAction(self, gesture.direction == UISwipeGestureRecognizerDirectionLeft);
 }
 - (void)deletePressed { if (self.deleteRevealed && self.deleteAction) self.deleteAction(@(self.tag)); }
+- (void)editPressed { if (self.deleteRevealed && self.canEdit && self.editAction) self.editAction(@(self.tag)); }
 - (void)prepareForReuse {
     [super prepareForReuse];
     self.deleteRevealed = NO;
     self.deleteAction = nil;
+    self.editAction = nil;
+    self.canEdit = NO;
     self.revealAction = nil;
     self.picture.image = nil;
     self.sourceIcon.image = nil;
@@ -234,12 +251,14 @@ static void CBPaste(BOOL (^allowed)(void)) {
 @property(nonatomic,strong) id pasteApplication;
 @property(nonatomic) NSUInteger presentation;
 @property(nonatomic) BOOL selecting;
+@property(nonatomic,strong) UINavigationController *textEditor;
 - (void)reloadPreferences;
 - (void)capture;
 - (void)show;
 - (void)hide;
 - (void)hideWithCompletion:(dispatch_block_t)completion;
 - (void)deleteItem:(NSNumber *)identifier;
+- (void)editItem:(NSNumber *)identifier;
 - (void)revealDeleteForCell:(CBCell *)cell visible:(BOOL)visible;
 @end
 static CBController *controller;
@@ -399,6 +418,7 @@ static CBController *controller;
     [self hideWithCompletion:nil];
 }
 - (void)hideWithCompletion:(dispatch_block_t)completion {
+    if (self.textEditor) { [self.textEditor dismissViewControllerAnimated:NO completion:nil]; self.textEditor = nil; }
     [self endSearchEditing];
     [self revealDeleteForCell:nil visible:NO];
     self.visible = NO;
@@ -476,9 +496,11 @@ static CBController *controller;
     BOOL hasImage = [item[@"image"] boolValue];
     cell.tag = [item[@"id"] integerValue];
     if (self.revealedCell == cell) self.revealedCell = nil;
+    cell.canEdit = !hasImage;
     cell.deleteRevealed = NO;
     __weak CBController *weakSelf = self;
     cell.deleteAction = ^(NSNumber *identifier) { [weakSelf deleteItem:identifier]; };
+    cell.editAction = ^(NSNumber *identifier) { [weakSelf editItem:identifier]; };
     cell.revealAction = ^(CBCell *sender, BOOL visible) { [weakSelf revealDeleteForCell:sender visible:visible]; };
     cell.text.text = hasImage ? nil : item[@"text"];
     cell.text.hidden = hasImage;
@@ -582,6 +604,71 @@ static CBController *controller;
             }];
         });
     });
+}
+- (void)editItem:(NSNumber *)identifier {
+    if (!self.visible || self.locked || self.selecting || self.presentedViewController) return;
+    NSDictionary *item = nil;
+    for (NSDictionary *candidate in self.items) if ([candidate[@"id"] isEqual:identifier]) { item = candidate; break; }
+    if (!item || [item[@"image"] boolValue]) return;
+    [self endSearchEditing];
+    [self searchBarShouldBeginEditing:self.searchBar];
+    [self revealDeleteForCell:nil visible:NO];
+    self.selecting = YES;
+    NSUInteger token = self.presentation;
+    UIViewController *editor = [UIViewController new];
+    editor.title = @"编辑文字";
+    editor.view.backgroundColor = UIColor.systemBackgroundColor;
+    UITextView *text = [UITextView new];
+    text.font = [UIFont systemFontOfSize:17];
+    text.text = item[@"text"];
+    text.translatesAutoresizingMaskIntoConstraints = NO;
+    [editor.view addSubview:text];
+    [NSLayoutConstraint activateConstraints:@[
+        [text.topAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.topAnchor constant:8],
+        [text.leadingAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.leadingAnchor constant:12],
+        [text.trailingAnchor constraintEqualToAnchor:editor.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
+        [text.bottomAnchor constraintEqualToAnchor:editor.view.keyboardLayoutGuide.topAnchor constant:-8]]];
+    self.textEditor = [[UINavigationController alloc] initWithRootViewController:editor];
+    self.textEditor.modalInPresentation = YES;
+    self.textEditor.modalPresentationStyle = UIModalPresentationFullScreen;
+    __weak CBController *weakSelf = self;
+    dispatch_block_t close = ^{
+        CBController *host = weakSelf;
+        if (!host || host.presentation != token) return;
+        [host.textEditor dismissViewControllerAnimated:YES completion:^{
+            if (host.presentation != token) return;
+            host.textEditor = nil;
+            host.selecting = NO;
+            [host endSearchEditing];
+        }];
+    };
+    __weak UIViewController *weakEditor = editor;
+    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"取消" image:nil primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }] menu:nil];
+    editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"保存" image:nil primaryAction:[UIAction actionWithHandler:^(UIAction *action) {
+        CBController *host = weakSelf;
+        if (!host || !host.visible || host.locked || host.presentation != token) return;
+        NSString *value = [text.text copy];
+        if (!value.length) return;
+        weakEditor.navigationItem.rightBarButtonItem.enabled = NO;
+        weakEditor.navigationItem.leftBarButtonItem.enabled = NO;
+        text.editable = NO;
+        dispatch_async(host.queue, ^{
+            BOOL saved = [host.store updateText:value forID:identifier];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (!host.visible || host.presentation != token) return;
+                if (saved) { AudioServicesPlaySystemSound(1519); [host refresh]; close(); }
+                else {
+                    text.editable = YES;
+                    weakEditor.navigationItem.rightBarButtonItem.enabled = YES;
+                    weakEditor.navigationItem.leftBarButtonItem.enabled = YES;
+                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败" message:@"记录未被修改，请稍后重试。" preferredStyle:UIAlertControllerStyleAlert];
+                    [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
+                    [weakEditor presentViewController:alert animated:YES completion:nil];
+                }
+            });
+        });
+    }] menu:nil];
+    [self presentViewController:self.textEditor animated:YES completion:^{ if (self.presentation == token && self.visible) [text becomeFirstResponder]; }];
 }
 - (void)deleteItem:(NSNumber *)identifier {
     if (!self.visible || self.locked || self.selecting) return;

@@ -87,6 +87,18 @@
     sqlite3_finalize(s);
     return items;
 }
+- (BOOL)updateText:(NSString *)text forID:(NSNumber *)identifier {
+    if (!_db || ![text isKindOfClass:NSString.class] || !text.length || ![identifier isKindOfClass:NSNumber.class] || identifier.longLongValue <= 0) return NO;
+    sqlite3_stmt *s = NULL;
+    BOOL ok = sqlite3_prepare_v2(_db, "UPDATE history SET text=? WHERE id=? AND image IS NULL", -1, &s, NULL) == SQLITE_OK;
+    if (ok) {
+        sqlite3_bind_text(s, 1, text.UTF8String, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(s, 2, identifier.longLongValue);
+        ok = sqlite3_step(s) == SQLITE_DONE && sqlite3_changes(_db) == 1;
+    }
+    sqlite3_finalize(s);
+    return ok;
+}
 - (NSData *)imageForID:(NSNumber *)identifier {
     sqlite3_stmt *s = NULL;
     NSData *data = nil;
