@@ -643,7 +643,7 @@ static CBController *controller;
         }];
     };
     __weak UIViewController *weakEditor = editor;
-    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }] menu:nil];
+    editor.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel primaryAction:[UIAction actionWithHandler:^(UIAction *action) { close(); }]];
     editor.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave primaryAction:[UIAction actionWithHandler:^(UIAction *action) {
         CBController *host = weakSelf;
         if (!host || !host.visible || host.locked || host.presentation != token) return;
@@ -672,7 +672,7 @@ static CBController *controller;
                 }
             });
         });
-    }] menu:nil];
+    }]];
     [self presentViewController:self.textEditor animated:YES completion:^{ if (self.presentation == token && self.visible) [text becomeFirstResponder]; }];
 }
 - (void)deleteItem:(NSNumber *)identifier {
