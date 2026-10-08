@@ -64,6 +64,7 @@ jobs:
           for name in preinst postinst prerm postrm; do test ! -f "$work/root/DEBIAN/$name"; done
           dpkg-deb --root-owner-group -Zxz -b "$work/root" "$work/package.deb"
           mv "$work/package.deb" "$package"
+          python3 tools/package.py "$package"
           dpkg-deb -I "$package"
           dpkg-deb -c "$package"
           shasum -a 256 "$package"
