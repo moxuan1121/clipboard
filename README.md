@@ -27,12 +27,12 @@ URL 呼出沿用 RegionShot 的历史/AI 窗口链路：仅在 SpringBoard 内�
 历史存放 `jbroot(@"/var/mobile/Library/Clipboard/history.sqlite")`，仅本地存储。在你的环境下对应 `/var/mobile/Containers/Shared/AppGroup/.jbroot-14B33A65E675FD96/var/mobile/Library/Clipboard/history.sqlite`，随机 RootHide 根目录由系统 API 解析，不写死。
 首次升级通过 SQLite backup 将旧 `/var/mobile/Library/Clipboard/history.sqlite` 迁到新位置；不覆盖已有新历史，不删除旧数据库。迁移失败停止本次数据库打开，之后重试，避免默默丢失原历史。
 安装、升级、卸载均无维护脚本；由 dpkg 移除本包文件，保留用户历史。不触碰 ElleKit、PreferenceLoader 的程序文件或其他插件。
-动态库恢复 Theos 默认 `/Library/MobileSubstrate/DynamicLibraries/Clipboard.dylib` 路径。最终包移除注入框架共享目录的目录归属项，只拥有本插件具体文件；不创建、替换或删除框架的兼容符号链接。此路径由已安装的注入框架提供。
+动态库与 Kayoko 的 RootHide 版一致，直接安装在 `/usr/lib/TweakInject/Clipboard.dylib`，配套过滤文件为同目录的 `Clipboard.plist`。使用标准 DEB 文件清单，Sileo 可以显示完整目录树；不打包、替换或删除 `MobileSubstrate/DynamicLibraries` 共享兼容链接。
 禁用时停止新捕获并隐藏面板。锁屏时隐藏面板并拒绝呼出。
 
 构建：RootHide Theos + iPhoneOS16.5 SDK，执行 `python3 tools/icon.py` 后 `make package FINALPACKAGE=1`。
 GitHub Actions 自动构建并检查包路径、包名、架构和维护脚本。
-最终打包执行 `python3 tools/package.py packages/包名.deb`；CI 用真实 dpkg 在隔离根目录中验证从 0.1.9 升级和卸载，分别覆盖独立目录与兼容符号链接，并验证其他插件文件保留。
+最终包用标准 `dpkg-deb --root-owner-group -Zxz` 规范文件归属；CI 用真实 dpkg 在隔离根目录中验证从 0.1.9、0.1.10、0.1.11 升级和卸载，分别覆盖独立目录与兼容符号链接，检查安装清单包含完整目录层级，并验证其他插件文件保留。
 执行 `python3 tests/check.py` 检查 500 条限制、文字/图片存储、SQLite backup 原语、注入过滤与 UI 关键约束。macOS CI 还直接编译执行 `tests/url.m`，检查真实 URL 解析实现。
 
 行为参考 Kayoko，源代码为独立实现，不包含 Kayoko 的收藏、内置分词或第三方分词依赖。

@@ -22,18 +22,28 @@ for alias in (False, True):
         listing = subprocess.check_output(['dpkg-deb', '--fsys-tarfile', new])
         import io, tarfile
         with tarfile.open(fileobj=io.BytesIO(listing)) as data:
-            assert not any(m.isdir() and m.name.removeprefix('./').rstrip('/') in
-                           {'Library/MobileSubstrate', 'Library/MobileSubstrate/DynamicLibraries'} for m in data)
+            names = {m.name.removeprefix('./').rstrip('/') for m in data}
+            assert not any(n.startswith('Library/MobileSubstrate') for n in names)
+            assert {'usr', 'usr/lib', 'usr/lib/TweakInject',
+                    'usr/lib/TweakInject/Clipboard.dylib', 'usr/lib/TweakInject/Clipboard.plist'} <= names
         for package in (old, new):
             subprocess.run(['dpkg', '--root', directory, '--force-architecture', '--force-depends', '--install', package], check=True)
-        assert (link / 'Clipboard.dylib').is_file(), f'New dylib missing; symlink={alias}'
-        assert (link / 'Clipboard.plist').is_file()
+        assert (target / 'Clipboard.dylib').is_file(), f'New dylib missing; symlink={alias}'
+        assert (target / 'Clipboard.plist').is_file()
+        if not alias:
+            assert not (link / 'Clipboard.dylib').exists(), 'Old installation left behind'
+            assert not (link / 'Clipboard.plist').exists()
+        installed = subprocess.check_output(['dpkg', '--root', directory, '-L', 'com.moxuan1121.clipboard']).decode().splitlines()
+        assert {'/usr', '/usr/lib', '/usr/lib/TweakInject', '/usr/lib/TweakInject/Clipboard.dylib',
+                '/usr/lib/TweakInject/Clipboard.plist'} <= set(installed), 'Incomplete Sileo directory tree'
         assert sentinel.read_bytes() == b'keep untouched'
         assert foreign.read_bytes() == b'framework file'
         if alias:
             assert link.is_symlink(), 'Shared compatibility symlink replaced during upgrade'
         subprocess.run(['dpkg', '--root', directory, '--remove', 'com.moxuan1121.clipboard'], check=True)
         assert not (link / 'Clipboard.dylib').exists()
+        assert not (target / 'Clipboard.dylib').exists()
+        assert not (target / 'Clipboard.plist').exists()
         assert sentinel.read_bytes() == b'keep untouched'
         assert foreign.read_bytes() == b'framework file'
         if alias:

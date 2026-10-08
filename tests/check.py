@@ -25,7 +25,7 @@ assert db.execute('SELECT image,source FROM history WHERE id=501').fetchone() ==
 filter_text = (root / 'Clipboard.plist').read_text()
 assert 'com.apple.UIKit' not in filter_text and 'com.apple.springboard' in filter_text
 assert '/var/jb' not in (root / 'Makefile').read_text()
-assert 'Clipboard_INSTALL_PATH' not in (root / 'Makefile').read_text()
+assert 'Clipboard_INSTALL_PATH = /usr/lib/TweakInject' in (root / 'Makefile').read_text()
 assert 'jbroot(@"/var/mobile/Library/Clipboard")' in source
 assert 'sqlite3_backup_init' in source and 'SQLITE_OPEN_READONLY' in source
 db.commit()
