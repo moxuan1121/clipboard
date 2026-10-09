@@ -699,9 +699,26 @@ static CBController *controller;
         BOOL deleted = [self.store deleteItem:identifier];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!self.visible || self.presentation != token) return;
-            self.selecting = NO;
-            if (deleted) { AudioServicesPlaySystemSound(1519); [self refresh]; }
+            if (deleted) {
+                AudioServicesPlaySystemSound(1519);
+                [self revealDeleteForCell:nil visible:NO];
+                self.allItems = CBHistoryWithoutID(self.allItems, identifier);
+                NSUInteger index = [self.items indexOfObjectPassingTest:^BOOL(NSDictionary *item, NSUInteger position, BOOL *stop) {
+                    return [item[@"id"] isEqual:identifier];
+                }];
+                if (index == NSNotFound) { self.selecting = NO; return; }
+                // Remove one card; keep the other cells and their decoded images intact.
+                [UIView performWithoutAnimation:^{
+                    [self.grid performBatchUpdates:^{
+                        self.items = CBHistoryWithoutID(self.items, identifier);
+                        [self.grid deleteItemsAtIndexPaths:@[[NSIndexPath indexPathForItem:index inSection:0]]];
+                    } completion:^(BOOL finished) {
+                        if (self.presentation == token) self.selecting = NO;
+                    }];
+                }];
+            }
             else {
+                self.selecting = NO;
                 UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"删除失败" message:@"记录未被删除，请稍后重试。" preferredStyle:UIAlertControllerStyleAlert];
                 [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleCancel handler:nil]];
                 [self presentViewController:alert animated:YES completion:nil];

@@ -112,6 +112,12 @@ for screen, keyboard_height, requested in [(844, 336, 420), (390, 210, 420), (84
     if not keyboard_height:
         assert bottom == screen and height == requested
 assert 'updateText:value forID:identifier' in ui
+delete_ui = ui.split('- (void)deleteItem:(NSNumber *)identifier {')[1].split('\n@end')[0]
+assert '[self refresh]' not in delete_ui and 'reloadData' not in delete_ui
+assert 'CBHistoryWithoutID(self.allItems, identifier)' in delete_ui
+assert 'CBHistoryWithoutID(self.items, identifier)' in delete_ui
+assert 'deleteItemsAtIndexPaths' in delete_ui and 'performWithoutAnimation' in delete_ui
+assert 'index == NSNotFound' in delete_ui and 'self.presentation == token' in delete_ui
 edit_sql = re.search(r'"(UPDATE history SET text=\? WHERE id=\? AND image IS NULL)"', source).group(1)
 before_edit = db.execute('SELECT id,text,image,source FROM history ORDER BY id').fetchall()
 text_id = next(row[0] for row in before_edit if row[2] is None)
